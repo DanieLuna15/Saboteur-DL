@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/player_model.dart';
 import '../models/card_model.dart';
 
@@ -51,4 +52,33 @@ class GameStateNotifier extends Notifier<GameState> {
 
 final gameStateProvider = NotifierProvider<GameStateNotifier, GameState>(() {
   return GameStateNotifier();
+});
+
+// Provider para rastrear la partida activa
+class ActiveGameIdNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+  
+  set state(String? value) => super.state = value;
+}
+
+final activeGameIdProvider = NotifierProvider<ActiveGameIdNotifier, String?>(() {
+  return ActiveGameIdNotifier();
+});
+
+// Provider para el apodo del usuario actual (para consistencia rápida)
+class UserNicknameNotifier extends Notifier<String?> {
+  @override
+  String? build() {
+    // Inicializar desde Firebase si ya hay un usuario (ej: al recargar la app)
+    return FirebaseAuth.instance.currentUser?.displayName;
+  }
+  
+  void updateNickname(String? newName) {
+    state = newName;
+  }
+}
+
+final userNicknameProvider = NotifierProvider<UserNicknameNotifier, String?>(() {
+  return UserNicknameNotifier();
 });

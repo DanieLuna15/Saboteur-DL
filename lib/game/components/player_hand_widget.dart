@@ -8,7 +8,7 @@ class PlayerHandWidget extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Por ahora usamos datos locales para probar la UI
+    // Datos locales para la mano del jugador
     final List<PathCard> hand = [
       PathCard(
         id: '1',
@@ -35,15 +35,29 @@ class PlayerHandWidget extends ConsumerWidget {
     ];
 
     return Container(
-      height: 150,
+      height: 120,
       padding: const EdgeInsets.symmetric(vertical: 10),
-      color: Colors.black54,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.8),
+        border: const Border(top: BorderSide(color: Colors.amber, width: 2)),
+      ),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: hand.length,
         itemBuilder: (context, index) {
           final card = hand[index];
-          return CardItem(card: card);
+          return Draggable<PathCard>(
+            data: card,
+            feedback: Material(
+              color: Colors.transparent,
+              child: CardItem(card: card, isDragging: true),
+            ),
+            childWhenDragging: Opacity(
+              opacity: 0.3,
+              child: CardItem(card: card),
+            ),
+            child: CardItem(card: card),
+          );
         },
       ),
     );
@@ -52,26 +66,31 @@ class PlayerHandWidget extends ConsumerWidget {
 
 class CardItem extends StatelessWidget {
   final PathCard card;
-  const CardItem({required this.card, super.key});
+  final bool isDragging;
+  const CardItem({required this.card, this.isDragging = false, super.key});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 80,
+      width: 70,
       margin: const EdgeInsets.symmetric(horizontal: 5),
       decoration: BoxDecoration(
-        color: Colors.grey[700],
+        color: isDragging ? Colors.amber.withOpacity(0.5) : Colors.grey[850],
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.amber, width: 2),
+        border: Border.all(color: Colors.amber, width: 1.5),
+        boxShadow: isDragging ? [
+          const BoxShadow(color: Colors.amber, blurRadius: 10)
+        ] : [],
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.terrain, color: Colors.orange, size: 40),
-          const SizedBox(height: 5),
+          const Icon(Icons.grid_4x4, color: Colors.amber, size: 30),
+          const SizedBox(height: 4),
           Text(
             card.name,
-            style: const TextStyle(fontSize: 12, color: Colors.white),
+            style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
           ),
         ],
       ),

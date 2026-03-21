@@ -14,6 +14,15 @@ class CardModel {
     required this.type,
     required this.imageUrl,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'type': type.name,
+      'imageUrl': imageUrl,
+    };
+  }
 }
 
 class PathCard extends CardModel {
@@ -27,4 +36,32 @@ class PathCard extends CardModel {
     required this.connections,
     this.hasCenter = true,
   }) : super(type: CardType.path);
+
+  @override
+  Map<String, dynamic> toMap() {
+    final map = super.toMap();
+    map['connections'] = connections.map((key, value) => MapEntry(key.name, value));
+    map['hasCenter'] = hasCenter;
+    return map;
+  }
+
+  factory PathCard.fromMap(Map<String, dynamic> map) {
+    final connectionsMap = map['connections'] as Map<String, dynamic>;
+    final connections = <PathDirection, bool>{};
+    for (var entry in connectionsMap.entries) {
+      final direction = PathDirection.values.firstWhere(
+        (e) => e.name == entry.key,
+        orElse: () => PathDirection.top, // Default de seguridad
+      );
+      connections[direction] = entry.value as bool;
+    }
+
+    return PathCard(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      imageUrl: map['imageUrl'] as String,
+      connections: connections,
+      hasCenter: map['hasCenter'] as bool? ?? true,
+    );
+  }
 }

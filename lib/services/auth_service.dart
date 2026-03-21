@@ -16,8 +16,8 @@ class AuthService {
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
-        print('Inocio de sesión cancelado por el usuario.');
-        return null;
+        print('Inicio de sesión cancelado por el usuario (popup cerrado o atrás).');
+        return null; // Retornamos null para cancelación manual
       }
 
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
@@ -30,15 +30,25 @@ class AuthService {
       print('Inicio de sesión exitoso: ${result.user?.uid}');
       return result;
     } catch (e) {
-      print('ERROR CRÍTICO en Google Sign-In: $e');
-      return null;
+      final errorStr = e.toString().toLowerCase();
+      if (errorStr.contains('popup_closed') || 
+          errorStr.contains('canceled') || 
+          errorStr.contains('user-cancelled')) {
+        print('Inicio de sesión cancelado de forma segura: $e');
+        return null;
+      }
+      
+      print('ERROR CRÍTICO real en Google Sign-In: $e');
+      rethrow;
     }
   }
 
-  Future<fb_auth.UserCredential?> signInAnonymously() async {
-    print('Intentando iniciar sesión como invitado...');
+  Future<fb_auth.UserCredential?> signInAnonymously(String name) async {
+    print('Intentando iniciar sesión como invitado con nombre: $name');
     try {
       final result = await _auth.signInAnonymously();
+      await result.user?.updateDisplayName(name);
+      await result.user?.reload(); // FORZAR RECARGA DEL PERFIL
       print('Inicio de sesión anónimo exitoso: ${result.user?.uid}');
       return result;
     } catch (e) {

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
+import '../providers/game_state_provider.dart';
 
 class LoginScreen extends ConsumerWidget {
   const LoginScreen({super.key});
@@ -55,11 +56,20 @@ class LoginScreen extends ConsumerWidget {
                       icon: const Icon(Icons.login, color: Colors.black),
                       label: const Text('INICIAR CON GOOGLE'),
                       onPressed: () async {
-                        final result = await authService.signInWithGoogle();
-                        if (result == null && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Error al iniciar con Google.')),
-                          );
+                        try {
+                          final result = await authService.signInWithGoogle();
+                          if (result != null && context.mounted) {
+                            // Actualizar el provider de forma segura
+                            ProviderScope.containerOf(context, listen: false)
+                                .read(userNicknameProvider.notifier)
+                                .updateNickname(result.user?.displayName);
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error: ${e.toString().split(':').last.trim()}')),
+                            );
+                          }
                         }
                       },
                       style: ElevatedButton.styleFrom(
@@ -74,11 +84,21 @@ class LoginScreen extends ConsumerWidget {
                   // Anonymous Login
                   TextButton(
                     onPressed: () async {
-                      final result = await authService.signInAnonymously();
-                      if (result == null && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Error al entrar como invitado.')),
-                        );
+                      final result = await authService.signInAnonymously("Invitado");
+                      if (context.mounted) {
+                        if (result != null) {
+                          // Actualizar el provider de forma segura antes de que el widget se destruya completamente
+                          // o incluso si ya se está destruyendo
+                          try {
+                            ProviderScope.containerOf(context, listen: false)
+                                .read(userNicknameProvider.notifier)
+                                .updateNickname("Invitado");
+                          } catch (_) {} 
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Error al entrar como invitado.')),
+                          );
+                        }
                       }
                     },
                     child: const Text(
