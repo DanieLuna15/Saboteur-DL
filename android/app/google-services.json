@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "949426880918",
+    "project_id": "saboteur-danielluna",
+    "storage_bucket": "saboteur-danielluna.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949426880918:android:015652a15832c995e1ddb7",
+        "android_client_info": {
+          "package_name": "com.example.saboteur_online"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "949426880918-o7ldm1f3ct87imvrmf2huvaml99olj5u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCa3vgi2CCr7H6gKlWBZnzHJI1myXy-Dvc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "949426880918-o7ldm1f3ct87imvrmf2huvaml99olj5u.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
