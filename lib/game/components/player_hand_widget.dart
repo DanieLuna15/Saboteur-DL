@@ -4,35 +4,14 @@ import '../../providers/game_state_provider.dart';
 import '../../models/card_model.dart';
 
 class PlayerHandWidget extends ConsumerWidget {
-  const PlayerHandWidget({super.key});
+  final List<dynamic> handData;
+  final bool isMyTurn;
+  const PlayerHandWidget({super.key, required this.handData, required this.isMyTurn});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Datos locales para la mano del jugador
-    final List<PathCard> hand = [
-      PathCard(
-        id: '1',
-        name: 'Curva',
-        imageUrl: '',
-        connections: {PathDirection.bottom: true, PathDirection.right: true},
-      ),
-      PathCard(
-        id: '2',
-        name: 'Recta',
-        imageUrl: '',
-        connections: {PathDirection.left: true, PathDirection.right: true},
-      ),
-      PathCard(
-        id: '3',
-        name: 'T',
-        imageUrl: '',
-        connections: {
-          PathDirection.left: true,
-          PathDirection.right: true,
-          PathDirection.bottom: true
-        },
-      ),
-    ];
+    // Datos de Firestore para la mano del jugador
+    final List<CardModel> hand = handData.map((c) => CardModel.fromMap(Map<String, dynamic>.from(c))).toList();
 
     return Container(
       height: 120,
@@ -46,7 +25,7 @@ class PlayerHandWidget extends ConsumerWidget {
         itemCount: hand.length,
         itemBuilder: (context, index) {
           final card = hand[index];
-          return Draggable<PathCard>(
+          return isMyTurn ? Draggable<CardModel>(
             data: card,
             feedback: Material(
               color: Colors.transparent,
@@ -57,7 +36,7 @@ class PlayerHandWidget extends ConsumerWidget {
               child: CardItem(card: card),
             ),
             child: CardItem(card: card),
-          );
+          ) : CardItem(card: card);
         },
       ),
     );
@@ -65,7 +44,7 @@ class PlayerHandWidget extends ConsumerWidget {
 }
 
 class CardItem extends StatelessWidget {
-  final PathCard card;
+  final CardModel card;
   final bool isDragging;
   const CardItem({required this.card, this.isDragging = false, super.key});
 

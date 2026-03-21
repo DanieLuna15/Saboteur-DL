@@ -214,7 +214,7 @@ class LobbyScreen extends ConsumerWidget {
                         final isOverdue = now.difference(createdAt).inMinutes >= 2;
                         
                         if (players[user.uid]?['isHost'] == true) return false;
-                        if (isOverdue && players.length < 3) return false;
+                        if (isOverdue && players.length < 2) return false;
                         
                         return true;
                       }).toList();

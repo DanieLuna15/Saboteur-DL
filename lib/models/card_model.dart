@@ -23,6 +23,21 @@ class CardModel {
       'imageUrl': imageUrl,
     };
   }
+
+  factory CardModel.fromMap(Map<String, dynamic> map) {
+    final typeStr = map['type'] as String;
+    if (typeStr == CardType.path.name) {
+      return PathCard.fromMap(map);
+    } else if (typeStr == CardType.action.name) {
+      return ActionCard.fromMap(map);
+    }
+    return CardModel(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      type: CardType.values.firstWhere((e) => e.name == typeStr, orElse: () => CardType.path),
+      imageUrl: map['imageUrl'] as String,
+    );
+  }
 }
 
 class PathCard extends CardModel {
@@ -62,6 +77,37 @@ class PathCard extends CardModel {
       imageUrl: map['imageUrl'] as String,
       connections: connections,
       hasCenter: map['hasCenter'] as bool? ?? true,
+    );
+  }
+}
+
+class ActionCard extends CardModel {
+  final String actionType; // 'break_tool', 'fix_tool', 'map', 'rockfall'
+  final String targetTool; // e.g. 'pickaxe', 'lantern', 'cart' or 'all'
+
+  ActionCard({
+    required super.id,
+    required super.name,
+    required super.imageUrl,
+    required this.actionType,
+    this.targetTool = 'none',
+  }) : super(type: CardType.action);
+
+  @override
+  Map<String, dynamic> toMap() {
+    final map = super.toMap();
+    map['actionType'] = actionType;
+    map['targetTool'] = targetTool;
+    return map;
+  }
+
+  factory ActionCard.fromMap(Map<String, dynamic> map) {
+    return ActionCard(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      imageUrl: map['imageUrl'] as String,
+      actionType: map['actionType'] as String,
+      targetTool: map['targetTool'] as String? ?? 'none',
     );
   }
 }

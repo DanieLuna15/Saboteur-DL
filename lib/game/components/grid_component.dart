@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import '../saboteur_game.dart';
 
 class GridComponent extends PositionComponent with HasGameRef<SaboteurGame> {
-  final int rows = 5;
-  final int cols = 9;
+  final int rows = 7;
+  final int cols = 10;
   final double tileSize = 100;
 
   @override
@@ -16,9 +16,9 @@ class GridComponent extends PositionComponent with HasGameRef<SaboteurGame> {
   @override
   void render(Canvas canvas) {
     final paint = Paint()
-      ..color = Colors.white24
+      ..color = Colors.white54
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
+      ..strokeWidth = 1.5;
 
     for (int i = 0; i <= rows; i++) {
       canvas.drawLine(Offset(0, i * tileSize), Offset(cols * tileSize, i * tileSize), paint);

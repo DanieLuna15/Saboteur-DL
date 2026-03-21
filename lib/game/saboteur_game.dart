@@ -7,55 +7,51 @@ import 'package:flame_riverpod/flame_riverpod.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class SaboteurGame extends FlameGame with RiverpodGameMixin {
+class SaboteurGame extends FlameGame {
   late GridComponent grid;
-  String? gameId;
+  final String gameId;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final Map<String, PathCardComponent> _boardCards = {};
+
+  SaboteurGame({required this.gameId});
 
   @override
   Future<void> onLoad() async {
     grid = GridComponent();
     add(grid);
 
-    // Obtener el ID de la partida desde el provider
-    gameId = ref.read(activeGameIdProvider);
-
-    if (gameId != null) {
-      // Escuchar cambios en la partida en tiempo real
-      _firestore.collection('games').doc(gameId).snapshots().listen((snapshot) {
-        if (snapshot.exists) {
-          _updateBoard(snapshot.data() as Map<String, dynamic>);
-        }
-      });
-    } else {
-      // Modo local (para pruebas)
-      _addStartCard();
-      _addGoalCards();
-    }
+    // Escuchar cambios en la partida en tiempo real
+    _firestore.collection('games').doc(gameId).snapshots().listen((snapshot) {
+      if (snapshot.exists) {
+        _updateBoard(snapshot.data() as Map<String, dynamic>);
+      }
+    });
 
     print('Saboteur Game Loaded. GameId: $gameId');
   }
 
   void _updateBoard(Map<String, dynamic> data) {
-    // 1. Limpiar cartas actuales del grid (excepto el grid mismo)
-    children.whereType<PathCardComponent>().forEach((c) => c.removeFromParent());
+    if (_boardCards.isEmpty) {
+      _addStartCard();
+      _addGoalCards();
+    }
 
-    // 2. Re-agregar la carta de Inicio y Metas (siempre fijas en este demo)
-    _addStartCard();
-    _addGoalCards();
-
-    // 3. Agregar cartas jugadas desde el servidor
     final pathCardsData = data['pathCards'] as List<dynamic>? ?? [];
     for (var cardData in pathCardsData) {
       final card = PathCard.fromMap(cardData as Map<String, dynamic>);
       final x = cardData['x'] as int;
       final y = cardData['y'] as int;
+      final cardKey = '${x}_$y';
 
-      add(PathCardComponent(
-        card: card,
-        position: Vector2(x * grid.tileSize, y * grid.tileSize),
-        size: Vector2(grid.tileSize, grid.tileSize),
-      ));
+      if (!_boardCards.containsKey(cardKey)) {
+        final comp = PathCardComponent(
+          card: card,
+          position: Vector2(x * grid.tileSize, y * grid.tileSize),
+          size: Vector2(grid.tileSize, grid.tileSize),
+        );
+        _boardCards[cardKey] = comp;
+        add(comp);
+      }
     }
   }
 
@@ -72,11 +68,13 @@ class SaboteurGame extends FlameGame with RiverpodGameMixin {
       },
     );
 
-    add(PathCardComponent(
+    final comp = PathCardComponent(
       card: startCard,
-      position: Vector2(0, 2 * grid.tileSize),
+      position: Vector2(0, 3 * grid.tileSize),
       size: Vector2(grid.tileSize, grid.tileSize),
-    ));
+    );
+    _boardCards['start'] = comp;
+    add(comp);
   }
 
   void _addGoalCards() {
@@ -93,12 +91,14 @@ class SaboteurGame extends FlameGame with RiverpodGameMixin {
         },
       );
 
-      add(PathCardComponent(
+      final comp = PathCardComponent(
         card: goalCard,
         isFaceDown: true,
-        position: Vector2(8 * grid.tileSize, (i * 2) * grid.tileSize),
+        position: Vector2(8 * grid.tileSize, ((i * 2) + 1) * grid.tileSize),
         size: Vector2(grid.tileSize, grid.tileSize),
-      ));
+      );
+      _boardCards['goal_$i'] = comp;
+      add(comp);
     }
   }
 }

@@ -19,6 +19,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
   Timer? _cleanupTimer;
   bool _isDeleting = false;
   bool _isExitingManually = false;
+  bool _hasNavigatedToGame = false;
 
   @override
   void dispose() {
@@ -30,19 +31,19 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
   void _handleHostDeleteRoom(BuildContext context, String gameId, FirebaseService service) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.darkBackground,
         title: const Text('¿ELIMINAR MINA?', style: TextStyle(color: AppColors.brightGold)),
         content: const Text('Se cancelará la partida para todos los jugadores.', style: TextStyle(color: AppColors.cream)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             onPressed: () async {
               setState(() => _isExitingManually = true);
-              Navigator.pop(context); // Cerrar diálogo
+              Navigator.pop(dialogContext); // Cerrar diálogo
               
               try {
                 await service.deleteGame(gameId);
@@ -69,7 +70,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
   Future<void> _handleBackPress(BuildContext context, bool isHost, String gameId, String uid, FirebaseService service) async {
     final shouldLeave = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.darkBackground,
         title: Text(isHost ? '¿ELIMINAR SALA?' : '¿SALIR DE LA SALA?', style: const TextStyle(color: AppColors.brightGold)),
         content: Text(
@@ -79,9 +80,9 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
           style: const TextStyle(color: AppColors.cream)
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCELAR')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('CANCELAR')),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             style: ElevatedButton.styleFrom(backgroundColor: isHost ? Colors.red.shade900 : AppColors.blueDark),
             child: const Text('SALIR'),
           ),
@@ -113,7 +114,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
     final TextEditingController controller = TextEditingController(text: players[currentUid]['name']);
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.darkBackground,
         title: const Text('CAMBIAR NOMBRE', style: TextStyle(color: AppColors.brightGold)),
         content: TextField(
@@ -124,13 +125,13 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCELAR')),
           ElevatedButton(
             onPressed: () async {
               final newName = service.getUniqueName(players, controller.text.trim(), currentUid);
               await service.updatePlayerName(gameId, currentUid, newName);
               ref.read(userNicknameProvider.notifier).updateNickname(newName);
-              if (context.mounted) Navigator.pop(context);
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
             },
             child: const Text('GUARDAR'),
           ),
@@ -140,7 +141,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
   }
 
   void _setupAutoCleanup(String gameId, DateTime createdAt, int playerCount, FirebaseService service) {
-    if (playerCount >= 3) {
+    if (playerCount >= 2) {
       _cleanupTimer?.cancel();
       _cleanupTimer = null;
       return;
@@ -152,7 +153,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
     final difference = now.difference(createdAt);
     final remainingSeconds = 120 - difference.inSeconds;
 
-    if (remainingSeconds <= 0 && playerCount < 3) {
+    if (remainingSeconds <= 0 && playerCount < 2) {
       _triggerAutoDelete(gameId, service);
     } else if (remainingSeconds > 0) {
       _cleanupTimer = Timer(Duration(seconds: remainingSeconds), () {
@@ -202,6 +203,9 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
         
         final currentUid = firebaseService.currentUid;
         final amIHost = players[currentUid]?['isHost'] ?? false;
+        
+        int readyCount = players.values.where((p) => p['isReady'] == true || p['isHost'] == true).length;
+        bool allReady = readyCount == players.length;
 
         if (amIHost && status == 'waiting') {
           _setupAutoCleanup(gameId, createdAt, players.length, firebaseService);
@@ -210,12 +214,15 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
           _cleanupTimer = null;
         }
 
-        if (status == 'playing') {
+        if (status == 'playing' && !_hasNavigatedToGame) {
+          _hasNavigatedToGame = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const GameScreen()),
-            );
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const GameScreen()),
+              );
+            }
           });
         }
 
@@ -251,11 +258,18 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                         Text('MINA: $gameId', style: const TextStyle(color: AppColors.brightGold, fontSize: 16)),
                         const SizedBox(height: 10),
                         Text('${players.length} Jugador(es) en la mina', style: const TextStyle(color: AppColors.cream)),
-                        if (amIHost && players.length < 3)
+                        const SizedBox(height: 5),
+                        Text('$readyCount/${players.length} Jugador(es) listos', 
+                          style: TextStyle(
+                            color: allReady ? Colors.greenAccent : AppColors.orangeAccent, 
+                            fontWeight: FontWeight.bold
+                          )
+                        ),
+                        if (amIHost && players.length < 2)
                           const Padding(
                             padding: EdgeInsets.only(top: 8.0),
                             child: Text(
-                              'La sala se cerrará en 2 minutos si no hay 3 jugadores',
+                              'La sala se cerrará en 2 minutos si no hay 2 jugadores',
                               style: TextStyle(color: Colors.orangeAccent, fontSize: 11, fontStyle: FontStyle.italic),
                             ),
                           ),
@@ -301,7 +315,20 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                             ),
                             trailing: player['isHost'] 
                               ? Text('ANFITRIÓN', style: TextStyle(color: isMe ? Colors.black : AppColors.brightGold, fontSize: 10))
-                              : const Text('LISTO', style: TextStyle(color: Colors.green, fontSize: 10)),
+                              : isMe
+                                ? ElevatedButton(
+                                    onPressed: () => firebaseService.toggleReadyStatus(gameId, currentUid, !(player['isReady'] ?? false)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: (player['isReady'] == true) ? Colors.green : AppColors.blueDark,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                                      minimumSize: const Size(60, 30),
+                                    ),
+                                    child: Text((player['isReady'] == true) ? 'LISTO' : 'PREPARARSE', style: const TextStyle(fontSize: 10, color: Colors.white)),
+                                  )
+                                : Text(
+                                    (player['isReady'] == true) ? 'LISTO' : 'ESPERANDO', 
+                                    style: TextStyle(color: (player['isReady'] == true) ? Colors.green : Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)
+                                  ),
                           ),
                         );
                       },
@@ -312,11 +339,11 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                       padding: const EdgeInsets.all(24.0),
                       child: Column(
                         children: [
-                          if (players.length < 3)
+                          if (players.length < 2)
                             const Padding(
                               padding: EdgeInsets.only(bottom: 8.0),
                               child: Text(
-                                'Se necesitan al menos 3 jugadores para empezar',
+                                'Se necesitan al menos 2 jugadores para empezar',
                                 style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
                               ),
                             ),
@@ -324,7 +351,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                             width: double.infinity,
                             decoration: AppTheme.goldGlowDecoration,
                             child: ElevatedButton(
-                              onPressed: players.length >= 3
+                              onPressed: (players.length >= 2 && allReady)
                                 ? () => firebaseService.startGame(gameId)
                                 : null,
                               style: ElevatedButton.styleFrom(

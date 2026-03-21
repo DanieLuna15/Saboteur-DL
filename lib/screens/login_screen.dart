@@ -67,8 +67,12 @@ class LoginScreen extends ConsumerWidget {
                         } catch (e) {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error: ${e.toString().split(':').last.trim()}')),
+                              SnackBar(
+                                content: Text('Error de Google: $e'),
+                                duration: const Duration(seconds: 5),
+                              ),
                             );
+                            print('Detalle del error de login: $e');
                           }
                         }
                       },

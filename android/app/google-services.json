@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "949426880918-sc2pi7b1csafu9mhpq323l4plgu8ujoc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.saboteur_online",
+            "certificate_hash": "bd08e70216e42695ba58508275638c24da37bffe"
+          }
+        },
+        {
           "client_id": "949426880918-o7ldm1f3ct87imvrmf2huvaml99olj5u.apps.googleusercontent.com",
           "client_type": 3
         }

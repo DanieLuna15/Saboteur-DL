@@ -7,6 +7,8 @@ class AuthService {
   // En la versión 6.2.1, el constructor GoogleSignIn() es público y funciona normalmente
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: <String>['email'],
+    // El ID de cliente web de tu archivo google-services.json
+    serverClientId: '949426880918-o7ldm1f3ct87imvrmf2huvaml99olj5u.apps.googleusercontent.com',
   );
 
   Stream<fb_auth.User?> get userStream => _auth.authStateChanges();
