@@ -49,6 +49,6 @@ Si quieres probar el juego localmente:
 ---
 
 <div align="center">
-Hecho con ❤️ por el equipo de Saboteur Online
+Hecho con ❤️ por Daniel Luna
 </div>
 

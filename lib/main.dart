@@ -5,9 +5,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'game/saboteur_game.dart';
 import 'game/components/player_hand_widget.dart';
+import 'theme/app_theme.dart';
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
+import 'screens/splash_screen.dart';
 
 bool isFirebaseInitialized = false;
 
@@ -31,6 +33,8 @@ void main() async {
   );
 }
 
+
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -39,12 +43,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Saboteur Online',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primarySwatch: Colors.amber,
-        fontFamily: 'Roboto',
-      ),
-      home: const AuthWrapper(),
+      theme: AppTheme.darkTheme,
+      home: const SplashScreen(), // Comienza en el SplashScreen
     );
   }
 }
