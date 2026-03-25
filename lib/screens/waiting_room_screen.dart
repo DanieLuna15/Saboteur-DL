@@ -7,6 +7,7 @@ import '../providers/game_state_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'game_screen.dart';
+import '../utils/debug_logger.dart';
 
 class WaitingRoomScreen extends ConsumerStatefulWidget {
   const WaitingRoomScreen({super.key});
@@ -98,6 +99,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
         } else {
           await service.leaveGame(gameId, uid);
         }
+        ref.read(activeGameIdProvider.notifier).state = null;
         if (mounted) {
           Navigator.of(context).pop();
         }
@@ -182,9 +184,11 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
       builder: (context, snapshot) {
         // El documento desaparece
         if (snapshot.hasData && !snapshot.data!.exists) {
-          if (!_isExitingManually) {
+          if (!_isExitingManually && !_hasNavigatedToGame) {
+            DebugLogger.log("WaitingRoom: El documento de juego ya no existe. Activando PopUntil.", category: "NAV");
+            ref.read(activeGameIdProvider.notifier).state = null; // Limpiar ID guardado
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (context.mounted) {
+              if (context.mounted && ModalRoute.of(context)?.isCurrent == true) {
                 Navigator.of(context).popUntil((route) => route.isFirst);
               }
             });
@@ -216,11 +220,12 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
 
         if (status == 'playing' && !_hasNavigatedToGame) {
           _hasNavigatedToGame = true;
+          DebugLogger.log("WaitingRoom: Transición confirmada a GameScreen (status: playing).", category: "NAV");
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (context) => const GameScreen()),
+                MaterialPageRoute(builder: (context) => GameScreen()),
               );
             }
           });

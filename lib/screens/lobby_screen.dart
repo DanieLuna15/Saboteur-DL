@@ -8,9 +8,18 @@ import '../providers/game_state_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'waiting_room_screen.dart';
+import 'game_screen.dart';
+import '../utils/debug_logger.dart';
 
-class LobbyScreen extends ConsumerWidget {
+class LobbyScreen extends ConsumerStatefulWidget {
   const LobbyScreen({super.key});
+
+  @override
+  ConsumerState<LobbyScreen> createState() => _LobbyScreenState();
+}
+
+class _LobbyScreenState extends ConsumerState<LobbyScreen> {
+  bool _isNavigating = false;
 
   void _showEditNameDialog(BuildContext context, WidgetRef ref, User user) {
     final currentNickname = ref.read(userNicknameProvider) ?? user.displayName ?? "";
@@ -48,7 +57,7 @@ class LobbyScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final firebaseService = FirebaseService();
     final authService = AuthService();
     final nickname = ref.watch(userNicknameProvider);
@@ -60,7 +69,6 @@ class LobbyScreen extends ConsumerWidget {
         if (user == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
         
         final isAnonymous = user.isAnonymous;
-        // Para Google, usamos su nombre real siempre. Para invitados, el apodo del provider o de su perfil.
         final currentName = isAnonymous 
           ? (nickname ?? user.displayName ?? "Invitado")
           : (user.displayName ?? "Minero Google");
@@ -133,6 +141,50 @@ class LobbyScreen extends ConsumerWidget {
                   ),
                 ),
                 
+                // Botón Reincorporarse (si hay partida activa)
+                if (ref.watch(activeGameIdProvider) != null)
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance.collection('games').doc(ref.watch(activeGameIdProvider)).snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+                      final data = snapshot.data!.data() as Map<String, dynamic>;
+                      final status = data['status'];
+                      final players = data['players'] as Map? ?? {};
+                      final isMember = players.containsKey(user.uid);
+
+                      if (status == 'playing' && isMember) {
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                          child: Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              gradient: LinearGradient(colors: [Colors.green.shade800, Colors.green.shade500]),
+                              boxShadow: [BoxShadow(color: Colors.green.withOpacity(0.5), blurRadius: 10, spreadRadius: 1)],
+                            ),
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              label: const Text('¡PARTIDA EN CURSO! REINCORPORARSE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              onPressed: () {
+                                DebugLogger.log("Lobby: Reincorporándose a la partida ${ref.read(activeGameIdProvider)}", category: "NAV");
+                                Navigator.push(
+                                  context, 
+                                  MaterialPageRoute(builder: (_) => GameScreen())
+                                );
+                              },
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox();
+                    },
+                  ),
+
                 // Botón Crear Partida
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -146,28 +198,27 @@ class LobbyScreen extends ConsumerWidget {
                         shadowColor: Colors.transparent,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      onPressed: () async {
+                      onPressed: _isNavigating ? null : () async {
+                        setState(() => _isNavigating = true);
                         try {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Creando mina...'), duration: Duration(seconds: 1)),
-                          );
-                          
                           final gameId = await firebaseService.createGame(
                             user.uid, currentName
                           );
                           
-                          if (context.mounted) {
+                          if (mounted) {
                             ref.read(activeGameIdProvider.notifier).state = gameId;
-                            Navigator.push(
+                            DebugLogger.log("Lobby: Navegando a WaitingRoom (Crear)", category: "NAV");
+                            await Navigator.push(
                               context,
                               MaterialPageRoute(builder: (context) => const WaitingRoomScreen()),
                             );
+                            // Al volver de la sala, reseteamos el estado de navegación
+                            if (mounted) setState(() => _isNavigating = false);
                           }
                         } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error al crear partida: $e'), backgroundColor: Colors.red),
-                            );
+                          if (mounted) {
+                            setState(() => _isNavigating = false);
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
                           }
                         }
                       },
@@ -259,7 +310,8 @@ class LobbyScreen extends ConsumerWidget {
                                 style: const TextStyle(color: AppColors.brownSoft),
                               ),
                               trailing: ElevatedButton(
-                                onPressed: () async {
+                                onPressed: _isNavigating ? null : () async {
+                                  setState(() => _isNavigating = true);
                                   try {
                                     final uniqueName = firebaseService.getUniqueName(
                                       players, currentName, user.uid
@@ -267,18 +319,19 @@ class LobbyScreen extends ConsumerWidget {
     
                                     await firebaseService.joinGame(gameDoc.id, user.uid, uniqueName);
                                     
-                                    if (context.mounted) {
+                                    if (mounted) {
                                       ref.read(activeGameIdProvider.notifier).state = gameDoc.id;
-                                      Navigator.push(
+                                      DebugLogger.log("Lobby: Navegando a WaitingRoom (Unirse)", category: "NAV");
+                                      await Navigator.push(
                                         context,
                                         MaterialPageRoute(builder: (context) => const WaitingRoomScreen()),
                                       );
+                                      if (mounted) setState(() => _isNavigating = false);
                                     }
                                   } catch (e) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Error al unirse: $e')),
-                                      );
+                                    if (mounted) {
+                                      setState(() => _isNavigating = false);
+                                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
                                     }
                                   }
                                 },

@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../game/deck_utils.dart';
+import '../models/card_model.dart';
 
 class FirebaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -9,12 +10,16 @@ class FirebaseService {
 
   String get currentUid => _auth.currentUser?.uid ?? '';
 
-  // Stream de la partida actual
   Stream<DocumentSnapshot> gameStream(String gameId) {
     return _firestore.collection('games').doc(gameId).snapshots();
   }
 
-  // Unirse a una partida
+  Future<void> toggleReadyStatus(String gameId, String playerId, bool isReady) async {
+    await _firestore.collection('games').doc(gameId).update({
+      'players.$playerId.isReady': isReady
+    });
+  }
+
   Future<void> joinGame(String gameId, String playerId, String playerName) async {
     await _firestore.collection('games').doc(gameId).set({
       'players': {
@@ -23,13 +28,13 @@ class FirebaseService {
           'role': 'unknown',
           'gold': 0,
           'isHost': false,
-          'isReady': false,
+          'hand': [],
+          'brokenTools': [],
         }
       }
     }, SetOptions(merge: true));
   }
 
-  // Crear una nueva partida
   Future<String> createGame(String hostId, String hostName) async {
     final docRef = _firestore.collection('games').doc();
     await docRef.set({
@@ -40,219 +45,419 @@ class FirebaseService {
           'role': 'unknown',
           'gold': 0,
           'isHost': true,
-          'isReady': true,
+          'hand': [],
+          'brokenTools': [],
         }
       },
       'board': {},
       'pathCards': [],
+      'deck': [],
+      'discardPile': [],
       'currentTurn': hostId,
+      'turnNumber': 1,
       'createdAt': FieldValue.serverTimestamp(),
+      'revealedGoals': [], 
+      'goldGoalIndex': 1,
     });
     return docRef.id;
   }
 
-  // Jugar una carta en el tablero
-  Future<void> playCard(String gameId, String playerId, Map<String, dynamic> cardData, int x, int y) async {
-    final gameRef = _firestore.collection('games').doc(gameId);
-    return _firestore.runTransaction((transaction) async {
-      final doc = await transaction.get(gameRef);
-      if (!doc.exists) throw Exception('Partida no encontrada');
-
-      final data = doc.data()!;
-      if (data['currentTurn'] != playerId) throw Exception('No es tu turno');
-
-      final players = data['players'] as Map<dynamic, dynamic>;
-      final hand = List.from(players[playerId]['hand']);
-      hand.removeWhere((c) => c['id'] == cardData['id']);
-
-      transaction.update(gameRef, {
-        'pathCards': FieldValue.arrayUnion([
-          {...cardData, 'x': x, 'y': y}
-        ]),
-        'players.$playerId.hand': hand,
-      });
-    });
-  }
-
-  Future<void> discardCard(String gameId, String playerId, Map<String, dynamic> cardData) async {
-    final gameRef = _firestore.collection('games').doc(gameId);
-    return _firestore.runTransaction((transaction) async {
-      final doc = await transaction.get(gameRef);
-      if (!doc.exists) throw Exception('Partida no encontrada');
-
-      final data = doc.data()!;
-      if (data['currentTurn'] != playerId) throw Exception('No es tu turno');
-
-      final players = data['players'] as Map<dynamic, dynamic>;
-      final hand = List.from(players[playerId]['hand']);
-      hand.removeWhere((c) => c['id'] == cardData['id']);
-
-      transaction.update(gameRef, {
-        'players.$playerId.hand': hand,
-      });
-    });
-  }
-
-  // Finalizar turno, robar carta y pasar turno
-  Future<void> endTurnAndDraw(String gameId, String playerId) async {
-    final gameRef = _firestore.collection('games').doc(gameId);
-    return _firestore.runTransaction((transaction) async {
-      final doc = await transaction.get(gameRef);
-      if (!doc.exists) throw Exception('Partida no encontrada');
-      final data = doc.data()!;
-      if (data['currentTurn'] != playerId) throw Exception('No es tu turno');
-      
-      final players = data['players'] as Map<dynamic, dynamic>;
-      final deck = List.from(data['deck'] as List<dynamic>? ?? []);
-      
-      final hand = List.from(players[playerId]['hand']);
-      
-      if (deck.isNotEmpty) {
-        final newCard = deck.removeAt(0);
-        hand.add(newCard); // Robar una carta
-      }
-
-      final playOrder = List<String>.from(data['playOrder']);
-      final currentTurnIndex = playOrder.indexOf(data['currentTurn']);
-      final nextTurnIndex = (currentTurnIndex + 1) % playOrder.length;
-      final nextTurnId = playOrder[nextTurnIndex];
-
-      transaction.update(gameRef, {
-        'deck': deck,
-        'players.$playerId.hand': hand,
-        'currentTurn': nextTurnId,
-        'turnNumber': FieldValue.increment(1),
-        'turnStartTime': FieldValue.serverTimestamp(),
-      });
-    });
-  }
-
-  Future<void> forceSkipTurn(String gameId, String playerId) async {
-    final gameRef = _firestore.collection('games').doc(gameId);
-    return _firestore.runTransaction((transaction) async {
-      final doc = await transaction.get(gameRef);
-      if (!doc.exists) throw Exception('Partida no encontrada');
-      final data = doc.data()!;
-      if (data['currentTurn'] != playerId) return; // Ya no es su turno
-
-      final players = data['players'] as Map<dynamic, dynamic>;
-      final deck = List.from(data['deck'] as List<dynamic>? ?? []);
-      final hand = List.from(players[playerId]['hand']);
-      
-      // Pierde carta aleatoria si tiene (la primera de la mano)
-      if (hand.isNotEmpty) {
-        hand.removeAt(0); 
-      }
-      
-      // Repone la carta si aún hay en la baraja
-      if (deck.isNotEmpty) {
-        final newCard = deck.removeAt(0);
-        hand.add(newCard);
-      }
-
-      // Pasar el turno al siguiente jugador de la mesa
-      final playOrder = List<String>.from(data['playOrder']);
-      final currentTurnIndex = playOrder.indexOf(data['currentTurn']);
-      final nextTurnIndex = (currentTurnIndex + 1) % playOrder.length;
-      final nextTurnId = playOrder[nextTurnIndex];
-
-      transaction.update(gameRef, {
-        'deck': deck,
-        'players.$playerId.hand': hand,
-        'currentTurn': nextTurnId,
-        'turnNumber': FieldValue.increment(1),
-        'turnStartTime': FieldValue.serverTimestamp(),
-      });
-    });
-  }
-
-  // Toggle ready status
-  Future<void> toggleReadyStatus(String gameId, String playerId, bool isReady) async {
-    await _firestore.collection('games').doc(gameId).update({
-      'players.$playerId.isReady': isReady
-    });
-  }
-
-  // Empezar la partida con asignación de roles
   Future<void> startGame(String gameId) async {
     final doc = await _firestore.collection('games').doc(gameId).get();
     if (!doc.exists) return;
 
+    final random = Random();
     final data = doc.data() as Map<String, dynamic>;
     final players = Map<String, dynamic>.from(data['players']);
     final playerIds = players.keys.toList()..shuffle();
-    final numPlayers = playerIds.length;
 
-    // Determinar número de saboteadores
-    int numSaboteurs = 1;
-    if (numPlayers >= 5 && numPlayers <= 6) numSaboteurs = 2;
-    if (numPlayers >= 7) numSaboteurs = 3;
-    // Si solo hay 2 para pruebas, 1 de cada uno
-    if (numPlayers == 2) numSaboteurs = 1;
+    int numSaboteurs = playerIds.length == 2 ? 1 : (playerIds.length / 3).floor().clamp(1, 3);
 
-    // Generar mazo y definir tamaño de mano
-    final initialDeck = DeckUtils.generateStandardDeck();
-    int handSize = 6;
-    if (numPlayers >= 6) handSize = 5;
-    if (numPlayers >= 8) handSize = 4;
-
-    for (int i = 0; i < numPlayers; i++) {
-        final role = i < numSaboteurs ? 'saboteur' : 'miner';
-        
-        final playerHand = <Map<String, dynamic>>[];
-        for (int j = 0; j < handSize; j++) {
-            if (initialDeck.isNotEmpty) {
-                playerHand.add(initialDeck.removeLast().toMap());
-            }
-        }
-        
-        players[playerIds[i]]['role'] = role;
-        players[playerIds[i]]['hand'] = playerHand;
+    for (int i = 0; i < playerIds.length; i++) {
+        players[playerIds[i]]['role'] = i < numSaboteurs ? 'saboteur' : 'miner';
+        players[playerIds[i]]['brokenTools'] = [];
     }
 
-    final serializedDeck = initialDeck.map((c) => c.toMap()).toList();
+    final goldIdx = random.nextInt(3);
+    final goalShapes = <Map<String, dynamic>>[];
+    final stoneShapes = [
+      {'top': true, 'left': true, 'bottom': false, 'right': false},
+      {'bottom': true, 'left': true, 'top': false, 'right': false},
+    ]..shuffle();
+
+    for (int i = 0; i < 3; i++) {
+        if (i == goldIdx) {
+            goalShapes.add({'top': true, 'bottom': true, 'left': true, 'right': true});
+        } else {
+            goalShapes.add(stoneShapes.removeLast());
+        }
+    }
+
+    final deck = _generateDeck();
+    for (var pid in playerIds) {
+        players[pid]['hand'] = [for (int j = 0; j < 6; j++) if (deck.isNotEmpty) deck.removeLast()];
+    }
 
     await _firestore.collection('games').doc(gameId).update({
       'status': 'playing',
       'players': players,
-      'deck': serializedDeck,
-      'playOrder': playerIds,
-      'currentTurn': playerIds.first,
+      'deck': deck,
+      'currentTurn': playerIds[0],
       'turnNumber': 1,
+      'turnStartTime': FieldValue.serverTimestamp(),
+      'pathCards': [],
+      'discardPile': [],
+      'goldGoalIndex': goldIdx,
+      'goalShapes': goalShapes,
+      'revealedGoals': [],
+    });
+  }
+
+  Future<void> playCard(String gameId, String? uid, Map<String, dynamic> cardData, int x, int y) async {
+    if (uid == null) return;
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    final data = doc.data() as Map<String, dynamic>;
+    final players = Map<String, dynamic>.from(data['players']);
+    final pathCards = List<Map<String, dynamic>>.from(data['pathCards']);
+    
+    final existingIndex = pathCards.indexWhere((c) => c['x'] == x && c['y'] == y);
+    final isAction = cardData['type'] == 'path' ? false : true; // Improved type check
+    final actionType = cardData['actionType'];
+
+    if (isAction && actionType == 'rockfall') {
+      if (existingIndex == -1) throw Exception("No hay nada que destruir aquí");
+      pathCards.removeAt(existingIndex);
+      await _firestore.collection('games').doc(gameId).update({
+        'pathCards': pathCards,
+      });
+    } else if (!isAction) {
+      if (existingIndex != -1) throw Exception("Casilla ocupada");
+      
+      // VALIDACIÓN DE CAMINO
+      final newCard = PathCard.fromMap(cardData);
+      _validatePlacement(newCard, x, y, pathCards, data);
+
+      pathCards.add({...cardData, 'x': x, 'y': y, 'playedBy': uid});
+      
+      // CHEQUEO DE VICTORIA / REVELAR METAS
+      final revealedGoals = List<int>.from(data['revealedGoals'] ?? []);
+      final goldIdx = data['goldGoalIndex'] as int;
+      bool winnersFound = false;
+
+      // BFS para ver qué se conecta ahora
+      final connectedCoords = _getConnectedPath(pathCards);
+      
+      // Metas están en (8, 1), (8, 3), (8, 5)
+      final goals = [(8, 1), (8, 3), (8, 5)];
+      for (int i = 0; i < 3; i++) {
+        final g = goals[i];
+        if (connectedCoords.contains(g)) {
+          if (_connectsToGoal(g.$1, g.$2, pathCards)) {
+             if (!revealedGoals.contains(i)) {
+                revealedGoals.add(i);
+                final isGold = (i == goldIdx);
+                if (isGold) winnersFound = true;
+                
+                // Notificar revelación de meta
+                await _firestore.collection('games').doc(gameId).update({
+                  'recentAction': {
+                    'type': 'goal_revealed',
+                    'goalIndex': i,
+                    'isGold': isGold,
+                    'actorName': players[uid]['name'],
+                    'timestamp': FieldValue.serverTimestamp(),
+                  }
+                });
+             }
+          }
+        }
+      }
+
+      if (winnersFound) {
+        await _firestore.collection('games').doc(gameId).update({
+          'status': 'finished',
+          'winnerRole': 'miner',
+          'revealedGoals': revealedGoals,
+          'pathCards': pathCards,
+          'players': players,
+        });
+        return;
+      }
+
+      await _firestore.collection('games').doc(gameId).update({
+        'revealedGoals': revealedGoals,
+        'pathCards': pathCards,
+      });
+    }
+
+    players[uid]['hand'].removeWhere((c) => c['id'] == cardData['id']);
+    await _firestore.collection('games').doc(gameId).update({
+      'players': players,
+    });
+  }
+
+  void _validatePlacement(PathCard card, int x, int y, List<Map<String, dynamic>> pathCards, Map<String, dynamic> gameData) {
+    // 1. Debe estar conectado a algo (o ser adyacente al inicio)
+    bool hasNeighbor = false;
+    final neighbors = [
+      (x, y - 1, 'top', 'bottom'),
+      (x, y + 1, 'bottom', 'top'),
+      (x - 1, y, 'left', 'right'),
+      (x + 1, y, 'right', 'left'),
+    ];
+
+    // Card de inicio está en (0, 3)
+    if ((x == 0 && (y == 2 || y == 4)) || (x == 1 && y == 3)) hasNeighbor = true;
+
+    for (var n in neighbors) {
+      final nx = n.$1;
+      final ny = n.$2;
+      final myDir = n.$3;
+      final neighborDir = n.$4;
+
+      final neighborData = pathCards.firstWhere((c) => c['x'] == nx && c['y'] == ny, orElse: () => {});
+      if (neighborData.isNotEmpty) {
+        hasNeighbor = true;
+        final nConns = neighborData['connections'] as Map;
+        final myConns = card.connections;
+        
+        // El "corte" ocurre si uno tiene conexión y el otro no
+        bool myHas = myConns[PathDirection.values.firstWhere((e) => e.name == myDir)] == true;
+        bool nHas = nConns[neighborDir] == true;
+        
+        if (myHas != nHas) {
+          throw Exception("Las conexiones no coinciden (corte en $myDir)");
+        }
+      }
+      
+      // Verificar conexión con metas ocultas (solo si el camino intenta entrar)
+      if (nx == 8 && (ny == 1 || ny == 3 || ny == 5)) {
+        // Por simplificación, las metas ocultas aceptan conexiones desde cualquier lado si son reveladas, 
+        // pero mientras están ocultas, solo validamos que si YO pongo una conexión hacia ella, esté bien.
+        // Las metas siempre tienen todas las conexiones centrales.
+      }
+    }
+
+    if (!hasNeighbor) throw Exception("La carta debe estar conectada al camino existente");
+    
+    // 2. ¿Está connectedToStart? (Opcional pero recomendado para Saboteur real)
+    final connected = _getConnectedPath(pathCards);
+    if (!connected.contains((x, y)) && !((x == 0 && (y == 2 || y == 4)) || (x == 1 && y == 3) || (x==0 && y==3))) {
+       // Si no es adyacente al inicio, debe estar conectado al grupo que viene del inicio
+       bool touchesConnected = false;
+       for (var n in neighbors) {
+         if (connected.contains((n.$1, n.$2))) touchesConnected = true;
+       }
+       if (!touchesConnected) throw Exception("No hay conexión con el inicio");
+    }
+  }
+
+  Set<(int, int)> _getConnectedPath(List<Map<String, dynamic>> pathCards) {
+    final Set<(int, int)> connected = {};
+    final List<(int, int)> queue = [(0, 3)]; // Inicio
+    
+    final Map<(int, int), Map<String, dynamic>> grid = {};
+    for (var c in pathCards) {
+      grid[(c['x'] as int, c['y'] as int)] = c;
+    }
+    // Start card fix:
+    grid[(0, 3)] = {'connections': {'top': true, 'bottom': true, 'left': true, 'right': true}};
+
+    while (queue.isNotEmpty) {
+      final curr = queue.removeAt(0);
+      if (connected.contains(curr)) continue;
+      connected.add(curr);
+
+      final currData = grid[curr];
+      if (currData == null) continue;
+      if (currData['hasCenter'] == false) continue; // Si es un callejón sin salida (Bloqueo)
+
+      final conns = currData['connections'] as Map;
+      
+      final neighbors = [
+        (curr.$1, curr.$2 - 1, 'top', 'bottom'),
+        (curr.$1, curr.$2 + 1, 'bottom', 'top'),
+        (curr.$1 - 1, curr.$2, 'left', 'right'),
+        (curr.$1 + 1, curr.$2, 'right', 'left'),
+      ];
+
+      for (var n in neighbors) {
+        if (conns[n.$3] == true) {
+          final nCoord = (n.$1, n.$2);
+          final nData = grid[nCoord];
+          if (nData != null && (nData['connections'] as Map)[n.$4] == true) {
+            queue.add(nCoord);
+          }
+          // Special case for goals (meta)
+          if (nCoord.$1 == 8 && (nCoord.$2 == 1 || nCoord.$2 == 3 || nCoord.$2 == 5)) {
+             connected.add(nCoord);
+          }
+        }
+      }
+    }
+    return connected;
+  }
+
+  bool _connectsToGoal(int gx, int gy, List<Map<String, dynamic>> pathCards) {
+    // Un simple chequeo de si algún vecino envía una conexión a la meta
+    final neighbors = [
+      (gx, gy - 1, 'bottom'),
+      (gx, gy + 1, 'top'),
+      (gx - 1, gy, 'right'),
+      (gx + 1, gy, 'left'),
+    ];
+
+    for (var n in neighbors) {
+      final nData = pathCards.firstWhere((c) => c['x'] == n.$1 && c['y'] == n.$2, orElse: () => {});
+      if (nData.isNotEmpty) {
+        if ((nData['connections'] as Map)[n.$3] == true) return true;
+      }
+      if (n.$1 == 0 && n.$2 == 3) return true; // Start card
+    }
+    return false;
+  }
+
+  Future<void> playActionOnPlayer(String gameId, String? actorUid, String targetUid, Map<String, dynamic> cardData) async {
+    if (actorUid == null) return;
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    final players = Map<String, dynamic>.from(doc.get('players'));
+    
+    final type = cardData['actionType'];
+    final tool = cardData['targetTool'];
+    List broken = List.from(players[targetUid]['brokenTools'] ?? []);
+
+    if (type == 'break_tool') {
+      if (actorUid == targetUid) {
+        throw Exception("No puedes romper tus propias herramientas");
+      }
+      if (!broken.contains(tool)) {
+        broken.add(tool);
+      } else {
+        throw Exception("Esta herramienta ya está rota");
+      }
+    } else if (type == 'fix_tool') {
+      final List? fixToolsRaw = cardData['fixTools'];
+      final List<String> canFix = (fixToolsRaw != null && fixToolsRaw.isNotEmpty) 
+          ? fixToolsRaw.cast<String>() 
+          : [tool];
+          
+      final matchingTool = broken.firstWhere((b) => canFix.contains(b), orElse: () => '');
+      
+      if (matchingTool.isEmpty) {
+        throw Exception("Esta carta no puede reparar ninguna de tus herramientas rotas");
+      }
+      
+      broken.remove(matchingTool);
+      // For notifications, we use the tool that was actually fixed
+      cardData['targetTool'] = matchingTool; 
+    }
+
+    players[targetUid]['brokenTools'] = broken;
+    players[actorUid]['hand'].removeWhere((c) => c['id'] == cardData['id']);
+
+    final actorName = players[actorUid]['name'];
+    final targetName = players[targetUid]['name'];
+
+    await _firestore.collection('games').doc(gameId).update({
+      'players': players,
+      'recentAction': {
+        'type': type,
+        'tool': tool,
+        'actorName': actorName,
+        'actorId': actorUid,
+        'targetName': targetName,
+        'targetId': targetUid,
+        'timestamp': FieldValue.serverTimestamp(),
+      }
+    });
+  }
+
+  Future<Map<String, dynamic>> revealGoalSecretly(String gameId, String uid, Map<String, dynamic> cardData, int goalIndex) async {
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    final data = doc.data() as Map<String, dynamic>;
+    final players = Map<String, dynamic>.from(data['players']);
+    final goldIdx = data['goldGoalIndex'] as int? ?? 1;
+    final goalShapes = data['goalShapes'] as List<dynamic>?;
+    
+    players[uid]['hand'].removeWhere((c) => c['id'] == cardData['id']);
+    
+    await _firestore.collection('games').doc(gameId).update({
+      'players': players,
+    });
+
+    final isGold = goalIndex == goldIdx;
+    Map<String, dynamic> shape = {'top': true, 'bottom': true, 'left': true, 'right': true};
+    if (goalShapes != null && goalShapes.length > goalIndex) {
+      shape = Map<String, dynamic>.from(goalShapes[goalIndex]);
+    }
+
+    return {
+      'isGold': isGold,
+      'connections': shape,
+      'name': isGold ? "¡ORO!" : "Piedra",
+    };
+  }
+
+  Future<void> discardCard(String gameId, String? uid, Map<String, dynamic> cardData) async {
+    if (uid == null) return;
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    final players = Map<String, dynamic>.from(doc.get('players'));
+    
+    players[uid]['hand'].removeWhere((c) => c['id'] == cardData['id']);
+    await _firestore.collection('games').doc(gameId).update({
+      'discardPile': FieldValue.arrayUnion([cardData]),
+      'players': players,
+    });
+  }
+
+  Future<void> endTurnAndDraw(String gameId, String? uid) async {
+    if (uid == null) return;
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    final data = doc.data() as Map<String, dynamic>;
+    final players = Map<String, dynamic>.from(data['players']);
+    final deck = List<Map<String, dynamic>>.from(data['deck']);
+    final playerIds = players.keys.toList();
+    
+    if (deck.isNotEmpty && players[uid]['hand'].length < 6) {
+        players[uid]['hand'].add(deck.removeLast());
+    }
+
+    int nextIndex = (playerIds.indexOf(uid) + 1) % playerIds.length;
+    await _firestore.collection('games').doc(gameId).update({
+      'players': players,
+      'deck': deck,
+      'currentTurn': playerIds[nextIndex],
+      'turnNumber': FieldValue.increment(1),
       'turnStartTime': FieldValue.serverTimestamp(),
     });
   }
 
-  // Eliminar la partida
+  Future<void> forceSkipTurn(String gameId, String currentTurnUid) async {
+    await endTurnAndDraw(gameId, currentTurnUid);
+  }
+
   Future<void> deleteGame(String gameId) async {
     await _firestore.collection('games').doc(gameId).delete();
   }
 
-  // Actualizar nombre de un jugador
   Future<void> updatePlayerName(String gameId, String playerId, String newName) async {
     await _firestore.collection('games').doc(gameId).update({
       'players.$playerId.name': newName
     });
   }
 
-  // Salir de una partida
   Future<void> leaveGame(String gameId, String playerId) async {
     await _firestore.collection('games').doc(gameId).update({
       'players.$playerId': FieldValue.delete()
     });
   }
 
-  // Generar un nombre único si ya existe uno igual en la sala
   String getUniqueName(Map<dynamic, dynamic> players, String targetName, String currentId) {
     List<String> existingNames = [];
     players.forEach((id, data) {
-      if (id != currentId) { // No compararse con uno mismo si estamos editando
-        existingNames.add(data['name'].toString());
-      }
+      if (id != currentId) existingNames.add(data['name'].toString());
     });
-
     if (!existingNames.contains(targetName)) return targetName;
-
     int counter = 2;
     String newName = '$targetName ($counter)';
     while (existingNames.contains(newName)) {
@@ -260,5 +465,41 @@ class FirebaseService {
       newName = '$targetName ($counter)';
     }
     return newName;
+  }
+
+  List<Map<String, dynamic>> _generateDeck() {
+    final List<Map<String, dynamic>> deck = [];
+    final random = Random();
+    final pathTemplates = [
+      {'name': 'Recta V', 'conn': {'top': true, 'bottom': true}},
+      {'name': 'Recta H', 'conn': {'left': true, 'right': true}},
+      {'name': 'Curva SD', 'conn': {'top': true, 'right': true}},
+      {'name': 'Curva SI', 'conn': {'top': true, 'left': true}},
+      {'name': 'Curva ID', 'conn': {'bottom': true, 'right': true}},
+      {'name': 'Curva II', 'conn': {'bottom': true, 'left': true}},
+      {'name': 'T-Inter', 'conn': {'left': true, 'right': true, 'bottom': true}},
+      {'name': 'T-Inter Inv', 'conn': {'left': true, 'right': true, 'top': true}},
+      {'name': 'Cruz', 'conn': {'top': true, 'bottom': true, 'left': true, 'right': true}},
+      {'name': 'Bloqueo', 'conn': {'top': true}, 'hasCenter': false},
+    ];
+    for (int i = 0; i < 40; i++) {
+        final t = pathTemplates[random.nextInt(pathTemplates.length)];
+        deck.add({'id': 'p_$i', 'name': t['name'], 'type': 'path', 'imageUrl': '', 'connections': t['conn'], 'hasCenter': t['hasCenter'] ?? true});
+    }
+    for (int i = 0; i < 4; i++) {
+        deck.add({'id': 'dyn_$i', 'name': 'Dinamita', 'type': 'action', 'actionType': 'rockfall', 'imageUrl': ''});
+        deck.add({'id': 'map_$i', 'name': 'Mapa', 'type': 'action', 'actionType': 'map', 'imageUrl': ''});
+    }
+    final tools = ['pickaxe', 'lantern', 'cart'];
+    for (var tool in tools) {
+        deck.add({'id': 'brk_${tool}_${random.nextInt(100)}', 'name': 'Romper $tool', 'type': 'action', 'actionType': 'break_tool', 'targetTool': tool, 'imageUrl': ''});
+        deck.add({'id': 'fix_${tool}_${random.nextInt(100)}', 'name': 'Reparar $tool', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': [tool], 'imageUrl': ''});
+    }
+    // Cartas de reparación doble
+    deck.add({'id': 'fix_pick_lant', 'name': 'Reparar Pico o Lámpara', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pickaxe', 'lantern'], 'imageUrl': ''});
+    deck.add({'id': 'fix_pick_cart', 'name': 'Reparar Pico o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pickaxe', 'cart'], 'imageUrl': ''});
+    deck.add({'id': 'fix_lant_cart', 'name': 'Reparar Lámpara o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['lantern', 'cart'], 'imageUrl': ''});
+    deck.shuffle();
+    return deck;
   }
 }

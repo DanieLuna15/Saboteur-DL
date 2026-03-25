@@ -83,7 +83,8 @@ class PathCard extends CardModel {
 
 class ActionCard extends CardModel {
   final String actionType; // 'break_tool', 'fix_tool', 'map', 'rockfall'
-  final String targetTool; // e.g. 'pickaxe', 'lantern', 'cart' or 'all'
+  final String targetTool; // e.g. 'pickaxe', 'lantern', 'cart' 
+  final List<String> fixTools;
 
   ActionCard({
     required super.id,
@@ -91,6 +92,7 @@ class ActionCard extends CardModel {
     required super.imageUrl,
     required this.actionType,
     this.targetTool = 'none',
+    this.fixTools = const [],
   }) : super(type: CardType.action);
 
   @override
@@ -98,6 +100,7 @@ class ActionCard extends CardModel {
     final map = super.toMap();
     map['actionType'] = actionType;
     map['targetTool'] = targetTool;
+    map['fixTools'] = fixTools;
     return map;
   }
 
@@ -108,6 +111,7 @@ class ActionCard extends CardModel {
       imageUrl: map['imageUrl'] as String,
       actionType: map['actionType'] as String,
       targetTool: map['targetTool'] as String? ?? 'none',
+      fixTools: (map['fixTools'] as List?)?.cast<String>() ?? [],
     );
   }
 }

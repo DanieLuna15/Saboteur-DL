@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class AuthService {
   final fb_auth.FirebaseAuth _auth = fb_auth.FirebaseAuth.instance;
@@ -7,8 +8,8 @@ class AuthService {
   // En la versión 6.2.1, el constructor GoogleSignIn() es público y funciona normalmente
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: <String>['email'],
-    // El ID de cliente web de tu archivo google-services.json
-    serverClientId: '949426880918-o7ldm1f3ct87imvrmf2huvaml99olj5u.apps.googleusercontent.com',
+    // serverClientId no es compatible con Web en esta versión del plugin
+    serverClientId: kIsWeb ? null : '949426880918-o7ldm1f3ct87imvrmf2huvaml99olj5u.apps.googleusercontent.com',
   );
 
   Stream<fb_auth.User?> get userStream => _auth.authStateChanges();

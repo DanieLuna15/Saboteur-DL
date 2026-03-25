@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/player_model.dart';
 import '../models/card_model.dart';
+import '../services/persistence_service.dart';
+import '../utils/debug_logger.dart';
 
 class GameState {
   final List<PlayerModel> players;
@@ -56,10 +59,29 @@ final gameStateProvider = NotifierProvider<GameStateNotifier, GameState>(() {
 
 // Provider para rastrear la partida activa
 class ActiveGameIdNotifier extends Notifier<String?> {
+  final _persistence = PersistenceService();
+
   @override
-  String? build() => null;
+  String? build() {
+    // Intentar cargar la partida guardada al iniciar el provider
+    _loadStoredGameId();
+    return null; 
+  }
+
+  Future<void> _loadStoredGameId() async {
+    final id = await _persistence.getGameId();
+    if (id != null) {
+      DebugLogger.log("ActiveGameIdNotifier: Partida recuperada de persistencia local: $id", category: "Persistence");
+      state = id;
+    }
+  }
   
-  set state(String? value) => super.state = value;
+  set state(String? value) {
+    super.state = value;
+    _persistence.saveGameId(value).then((_) {
+      DebugLogger.log("ActiveGameIdNotifier: Estado guardado localmente: $value", category: "Persistence");
+    });
+  }
 }
 
 final activeGameIdProvider = NotifierProvider<ActiveGameIdNotifier, String?>(() {
@@ -81,4 +103,9 @@ class UserNicknameNotifier extends Notifier<String?> {
 
 final userNicknameProvider = NotifierProvider<UserNicknameNotifier, String?>(() {
   return UserNicknameNotifier();
+});
+
+// Provider para el stream de la partida actual
+final gameDataProvider = StreamProvider.family<DocumentSnapshot, String>((ref, gameId) {
+  return FirebaseFirestore.instance.collection('games').doc(gameId).snapshots();
 });

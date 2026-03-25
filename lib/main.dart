@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flame/game.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -10,12 +11,23 @@ import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/splash_screen.dart';
+import 'utils/debug_logger.dart';
 
 bool isFirebaseInitialized = false;
 
 Future<void> _initializeFirebase() async {
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    
+    // Optimizaciones para tiempo real y evitar fallos de DNS/Cache en Android
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: false,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      // Forzar el host para evitar fallos de DNS en dispositivos TECNO/Android
+      host: 'firestore.googleapis.com',
+      sslEnabled: true,
+    );
+    
     isFirebaseInitialized = true;
   } catch (e) {
     debugPrint('Error inicializando Firebase: $e');
@@ -83,7 +95,11 @@ class AuthWrapper extends ConsumerWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        if (snapshot.hasData) {
+        
+        final user = snapshot.data;
+        DebugLogger.log("AuthWrapper: Estado de autenticación cambiado. User: ${user?.uid ?? 'null'}", category: "AUTH");
+
+        if (user != null) {
           return const LobbyScreen();
         }
         return const LoginScreen();
