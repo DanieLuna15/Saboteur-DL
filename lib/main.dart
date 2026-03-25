@@ -12,6 +12,7 @@ import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/splash_screen.dart';
 import 'utils/debug_logger.dart';
+import 'package:flame_audio/flame_audio.dart';
 
 bool isFirebaseInitialized = false;
 
@@ -37,6 +38,26 @@ Future<void> _initializeFirebase() async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _initializeFirebase();
+
+  try {
+     await FlameAudio.audioCache.loadAll([
+       'game_over_partida.mp3',
+       'game_over_ronda.mp3',
+       'game_winner_partida.mp3',
+       'game_winner_ronda.mp3',
+       'mapa.mp3',
+       'reparar_herramienta.mp3',
+       'romper_herramienta.mp3',
+       'uso_carta_general.mp3',
+       'uso_carta_user.mp3',
+       'descubrir_rol.mp3',
+       'dinamita.mp3',
+       'siguiente_turno.mp3',
+       'error.mp3'
+     ]);
+  } catch(e) {
+     debugPrint('Error precargando audios: $e');
+  }
 
   runApp(
     const ProviderScope(

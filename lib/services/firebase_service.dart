@@ -58,6 +58,9 @@ class FirebaseService {
       'createdAt': FieldValue.serverTimestamp(),
       'revealedGoals': [], 
       'goldGoalIndex': 1,
+      'roundNumber': 1,
+      'lastPlayedUid': '',
+      'turnOrder': [],
     });
     return docRef.id;
   }
@@ -102,6 +105,7 @@ class FirebaseService {
       'status': 'playing',
       'players': players,
       'deck': deck,
+      'turnOrder': playerIds,
       'currentTurn': playerIds[0],
       'turnNumber': 1,
       'turnStartTime': FieldValue.serverTimestamp(),
@@ -127,8 +131,15 @@ class FirebaseService {
     if (isAction && actionType == 'rockfall') {
       if (existingIndex == -1) throw Exception("No hay nada que destruir aquí");
       pathCards.removeAt(existingIndex);
+      final actorName = players[uid]['name'];
       await _firestore.collection('games').doc(gameId).update({
         'pathCards': pathCards,
+        'recentAction': {
+          'type': 'rockfall',
+          'actorName': actorName,
+          'actorId': uid,
+          'timestamp': FieldValue.serverTimestamp(),
+        }
       });
     } else if (!isAction) {
       if (existingIndex != -1) throw Exception("Casilla ocupada");
@@ -138,6 +149,16 @@ class FirebaseService {
       _validatePlacement(newCard, x, y, pathCards, data);
 
       pathCards.add({...cardData, 'x': x, 'y': y, 'playedBy': uid});
+      
+      final actorName = players[uid]['name'];
+      await _firestore.collection('games').doc(gameId).update({
+        'recentAction': {
+          'type': 'path_placed',
+          'actorName': actorName,
+          'actorId': uid,
+          'timestamp': FieldValue.serverTimestamp(),
+        }
+      });
       
       // CHEQUEO DE VICTORIA / REVELAR METAS
       final revealedGoals = List<int>.from(data['revealedGoals'] ?? []);
@@ -174,13 +195,10 @@ class FirebaseService {
       }
 
       if (winnersFound) {
-        await _firestore.collection('games').doc(gameId).update({
-          'status': 'finished',
-          'winnerRole': 'miner',
-          'revealedGoals': revealedGoals,
-          'pathCards': pathCards,
-          'players': players,
-        });
+        data['pathCards'] = pathCards;
+        data['revealedGoals'] = revealedGoals;
+        data['players'] = players;
+        await _distributeGold(gameId, data, 'miner', uid);
         return;
       }
 
@@ -383,6 +401,12 @@ class FirebaseService {
     
     await _firestore.collection('games').doc(gameId).update({
       'players': players,
+      'recentAction': {
+        'type': 'map_used',
+        'actorName': players[uid]['name'],
+        'actorId': uid,
+        'timestamp': FieldValue.serverTimestamp(),
+      }
     });
 
     final isGold = goalIndex == goldIdx;
@@ -422,17 +446,56 @@ class FirebaseService {
         players[uid]['hand'].add(deck.removeLast());
     }
 
-    int nextIndex = (playerIds.indexOf(uid) + 1) % playerIds.length;
+    bool allHandsEmpty = true;
+    for (var p in players.values) {
+      if ((p['hand'] as List).isNotEmpty) {
+        allHandsEmpty = false;
+        break;
+      }
+    }
+
+    if (allHandsEmpty && deck.isEmpty) {
+      data['players'] = players;
+      data['deck'] = deck;
+      await _distributeGold(gameId, data, 'saboteur', uid);
+      return;
+    }
+
+    final turnOrder = List<String>.from(data['turnOrder'] ?? playerIds);
+    int nextIndex = (turnOrder.indexOf(uid) + 1) % turnOrder.length;
+
     await _firestore.collection('games').doc(gameId).update({
       'players': players,
       'deck': deck,
-      'currentTurn': playerIds[nextIndex],
+      'currentTurn': turnOrder[nextIndex],
       'turnNumber': FieldValue.increment(1),
       'turnStartTime': FieldValue.serverTimestamp(),
     });
   }
 
   Future<void> forceSkipTurn(String gameId, String currentTurnUid) async {
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    final data = doc.data() as Map<String, dynamic>;
+    final players = Map<String, dynamic>.from(data['players']);
+    final deck = List<Map<String, dynamic>>.from(data['deck']);
+    
+    if (deck.isEmpty) {
+      final hand = List<Map<String, dynamic>>.from(players[currentTurnUid]['hand'] ?? []);
+      if (hand.isNotEmpty) {
+        final random = Random();
+        final cardToDiscard = hand.removeAt(random.nextInt(hand.length));
+        
+        await _firestore.collection('games').doc(gameId).update({
+          'discardPile': FieldValue.arrayUnion([cardToDiscard]),
+        });
+        
+        players[currentTurnUid]['hand'] = hand;
+        await _firestore.collection('games').doc(gameId).update({
+          'players': players,
+        });
+      }
+    }
+    
     await endTurnAndDraw(gameId, currentTurnUid);
   }
 
@@ -490,16 +553,138 @@ class FirebaseService {
         deck.add({'id': 'dyn_$i', 'name': 'Dinamita', 'type': 'action', 'actionType': 'rockfall', 'imageUrl': ''});
         deck.add({'id': 'map_$i', 'name': 'Mapa', 'type': 'action', 'actionType': 'map', 'imageUrl': ''});
     }
-    final tools = ['pickaxe', 'lantern', 'cart'];
+    final tools = ['pico', 'linterna', 'carrito'];
     for (var tool in tools) {
         deck.add({'id': 'brk_${tool}_${random.nextInt(100)}', 'name': 'Romper $tool', 'type': 'action', 'actionType': 'break_tool', 'targetTool': tool, 'imageUrl': ''});
         deck.add({'id': 'fix_${tool}_${random.nextInt(100)}', 'name': 'Reparar $tool', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': [tool], 'imageUrl': ''});
     }
-    // Cartas de reparación doble
-    deck.add({'id': 'fix_pick_lant', 'name': 'Reparar Pico o Lámpara', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pickaxe', 'lantern'], 'imageUrl': ''});
-    deck.add({'id': 'fix_pick_cart', 'name': 'Reparar Pico o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pickaxe', 'cart'], 'imageUrl': ''});
-    deck.add({'id': 'fix_lant_cart', 'name': 'Reparar Lámpara o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['lantern', 'cart'], 'imageUrl': ''});
-    deck.shuffle();
+    deck.add({'id': 'fix_pico_linterna', 'name': 'Reparar Pico o Linterna', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'linterna'], 'imageUrl': ''});
+    deck.add({'id': 'fix_pico_carrito', 'name': 'Reparar Pico o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'carrito'], 'imageUrl': ''});
+    deck.add({'id': 'fix_linterna_carrito', 'name': 'Reparar Linterna o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['linterna', 'carrito'], 'imageUrl': ''});
+    deck.shuffle(random);
     return deck;
+  }
+
+  Future<void> _distributeGold(String gameId, Map<String, dynamic> gameData, String winnerRole, String lastPlayerId) async {
+    final players = Map<String, dynamic>.from(gameData['players']);
+    final int roundNumber = gameData['roundNumber'] ?? 1;
+    final int numPlayers = players.length;
+
+    if (winnerRole == 'miner') {
+      int numCards = numPlayers == 10 ? 9 : numPlayers;
+      List<int> drawnNuggets = [];
+      final rand = Random();
+      for (int i = 0; i < numCards; i++) {
+         int r = rand.nextInt(28);
+         if (r < 16) drawnNuggets.add(1);
+         else if (r < 24) drawnNuggets.add(2);
+         else drawnNuggets.add(3);
+      }
+      drawnNuggets.sort((a,b) => b.compareTo(a));
+
+      final playerIds = players.keys.toList();
+      int startIdx = playerIds.indexOf(lastPlayerId);
+      if (startIdx == -1) startIdx = 0;
+
+      List<String> minerIds = [];
+      for (int i = 0; i < numPlayers; i++) {
+        String pid = playerIds[(startIdx + i) % numPlayers];
+        if (players[pid]['role'] == 'miner') {
+          minerIds.add(pid);
+        }
+      }
+
+      if (minerIds.isNotEmpty) {
+        int mIdx = 0;
+        for (int nugget in drawnNuggets) {
+           players[minerIds[mIdx]]['gold'] = (players[minerIds[mIdx]]['gold'] ?? 0) + nugget;
+           mIdx = (mIdx + 1) % minerIds.length;
+        }
+      }
+    } else {
+      int numSaboteurs = players.values.where((p) => p['role'] == 'saboteur').length;
+      int nuggetsPerSaboteur = 0;
+      if (numSaboteurs == 1) nuggetsPerSaboteur = 4;
+      else if (numSaboteurs >= 2 && numSaboteurs <= 3) nuggetsPerSaboteur = 3;
+      else if (numSaboteurs >= 4) nuggetsPerSaboteur = 2;
+
+      for (var pid in players.keys) {
+        if (players[pid]['role'] == 'saboteur') {
+          players[pid]['gold'] = (players[pid]['gold'] ?? 0) + nuggetsPerSaboteur;
+        }
+      }
+    }
+
+    await _firestore.collection('games').doc(gameId).update({
+      'players': players,
+      'status': roundNumber >= 3 ? 'finished' : 'round_finished',
+      'winnerRole': winnerRole,
+      'roundNumber': roundNumber,
+      'lastPlayedUid': lastPlayerId,
+      'pathCards': gameData['pathCards'] ?? [],
+      'revealedGoals': gameData['revealedGoals'] ?? [],
+      'deck': gameData['deck'] ?? [],
+    });
+  }
+
+  Future<void> startNextRound(String gameId) async {
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    if (!doc.exists) return;
+
+    final data = doc.data() as Map<String, dynamic>;
+    int roundNumber = data['roundNumber'] ?? 1;
+    if (roundNumber >= 3) return;
+    
+    final players = Map<String, dynamic>.from(data['players']);
+    final random = Random();
+    final playerIds = players.keys.toList()..shuffle();
+
+    int numSaboteurs = playerIds.length == 2 ? 1 : (playerIds.length / 3).floor().clamp(1, 4);
+    for (int i = 0; i < playerIds.length; i++) {
+        players[playerIds[i]]['role'] = i < numSaboteurs ? 'saboteur' : 'miner';
+        players[playerIds[i]]['brokenTools'] = [];
+    }
+
+    final goldIdx = random.nextInt(3);
+    final goalShapes = <Map<String, dynamic>>[];
+    final stoneShapes = [
+      {'top': true, 'left': true, 'bottom': false, 'right': false},
+      {'bottom': true, 'left': true, 'top': false, 'right': false},
+    ]..shuffle();
+
+    for (int i = 0; i < 3; i++) {
+        if (i == goldIdx) {
+            goalShapes.add({'top': true, 'bottom': true, 'left': true, 'right': true});
+        } else {
+            goalShapes.add(stoneShapes.removeLast());
+        }
+    }
+
+    final deck = _generateDeck();
+    for (var pid in playerIds) {
+        players[pid]['hand'] = [for (int j = 0; j < 6; j++) if (deck.isNotEmpty) deck.removeLast()];
+    }
+
+    final lastPlayedUid = data['lastPlayedUid'] as String?;
+    int nextTurnIdx = 0;
+    if (lastPlayedUid != null && playerIds.contains(lastPlayedUid)) {
+       nextTurnIdx = (playerIds.indexOf(lastPlayedUid) + 1) % playerIds.length;
+    }
+
+    await _firestore.collection('games').doc(gameId).update({
+      'status': 'playing',
+      'players': players,
+      'deck': deck,
+      'turnOrder': playerIds,
+      'currentTurn': playerIds[nextTurnIdx],
+      'turnNumber': 1,
+      'turnStartTime': FieldValue.serverTimestamp(),
+      'pathCards': [],
+      'discardPile': [],
+      'goldGoalIndex': goldIdx,
+      'goalShapes': goalShapes,
+      'revealedGoals': [],
+      'roundNumber': roundNumber + 1,
+    });
   }
 }

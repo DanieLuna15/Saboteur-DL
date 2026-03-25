@@ -30,18 +30,10 @@ class PathCardPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (isOptimistic) {
-      canvas.saveLayer(Offset.zero & size, Paint()..color = Colors.white.withOpacity(0.5));
-    }
-
     if (isFaceDown) {
       _drawBack(canvas, size);
     } else {
       _drawFront(canvas, size);
-    }
-
-    if (isOptimistic) {
-      canvas.restore();
     }
   }
 

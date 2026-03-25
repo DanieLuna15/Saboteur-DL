@@ -11,6 +11,7 @@ import '../models/card_model.dart';
 import '../theme/app_colors.dart';
 import '../game/components/path_card_painter.dart';
 import '../utils/debug_logger.dart';
+import 'package:flame_audio/flame_audio.dart';
 
 class GameScreen extends ConsumerStatefulWidget {
   const GameScreen({super.key});
@@ -31,6 +32,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   Timestamp? _currentTurnStartTime;
   int? _hoverX;
   int? _hoverY;
+  bool _isFirstActionIgnored = false;
+  bool _initialTurnHandled = false;
+
+
+
+  @override
+  void initState() {
+    super.initState();
+    _lastActionTimestamp = DateTime.now();
+  }
+
 
   @override
   void dispose() {
@@ -44,16 +56,66 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     final turnNumber = data['turnNumber'] as int? ?? 1;
     final isMyTurn = currentTurn == service.currentUid;
 
-    if (data['status'] == 'finished') {
-       DebugLogger.log("GameScreen: Estado 'finished' detectado. Mostrando diálogo final.", category: "STATE");
-       _showGameOverDialog(data['winnerRole'] ?? 'miner');
+    if (data['status'] == 'finished' || data['status'] == 'round_finished') {
+       DebugLogger.log("GameScreen: Estado '${data['status']}' detectado.", category: "STATE");
+       if (!_gameOverShown) {
+         final isGameEnd = data['status'] == 'finished';
+         final players = data['players'] as Map;
+         final myData = players[service.currentUid];
+         final myRole = myData?['role'] as String? ?? 'miner';
+         
+         final revealedGoals = List<int>.from(data['revealedGoals'] ?? []);
+         final goldIdx = data['goldGoalIndex'] as int? ?? 1;
+         final minersWon = revealedGoals.contains(goldIdx);
+         bool iWonRound = (myRole == 'miner' && minersWon) || (myRole == 'saboteur' && !minersWon);
+         
+         String soundFile = '';
+         if (isGameEnd) {
+           // Si la partida termina, SOLO suena el de partida (evitamos choque)
+           int myGold = myData?['gold'] ?? 0;
+           int maxGold = 0;
+           players.forEach((k, v) {
+             int g = v['gold'] ?? 0;
+             if (g > maxGold) maxGold = g;
+           });
+           soundFile = (myGold >= maxGold && maxGold > 0) ? 'game_winner_partida.mp3' : 'game_over_partida.mp3';
+         } else {
+           // Solo ronda
+           soundFile = iWonRound ? 'game_winner_ronda.mp3' : 'game_over_ronda.mp3';
+         }
+
+         try { FlameAudio.play(soundFile, volume: 0.8); } catch(e){}
+       }
+       final myData = players[service.currentUid];
+       final myRole = myData?['role'] as String? ?? 'miner';
+       _showGameOverDialog(data, myRole, service, gameId);
        return;
+    }
+
+    if (data['status'] == 'playing' && _gameOverShown) {
+      _gameOverShown = false;
+      _roleShown = false;
+      Navigator.of(context, rootNavigator: true).pop();
     }
 
     if (turnNumber != _lastTurnNumber || (isMyTurn && _lastTurnId != currentTurn)) {
       _lastTurnNumber = turnNumber;
       _lastTurnId = currentTurn ?? '';
       _currentTurnStartTime = data['turnStartTime'] as Timestamp?;
+      _hasPlayedOrDiscardedThisTurn = false;
+      
+      final handCount = (players[service.currentUid]?['hand'] as List?)?.length ?? 0;
+      final deckCount = (data['deck'] as List?)?.length ?? 0;
+      final isRealTurnChange = (turnNumber != _lastTurnNumber);
+
+      if (isMyTurn && handCount == 0 && deckCount == 0 && !_isEndingTurn) {
+         _isEndingTurn = true;
+         Future.delayed(const Duration(milliseconds: 300), () async {
+            try { await service.endTurnAndDraw(gameId, service.currentUid); } catch(e) {}
+            if (mounted) setState(() => _isEndingTurn = false);   
+         });
+         return; 
+      }
       
       final turnPlayerName = (players[currentTurn]?['name'] ?? 'Desconocido').toString().toUpperCase();
       _startTimer(gameId, service.currentUid, service, isMyTurn);
@@ -77,6 +139,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
     final timestamp = (action['timestamp'] as Timestamp?)?.toDate();
     if (timestamp == null) return;
+    
+    if (!_isFirstActionIgnored) {
+      _isFirstActionIgnored = true;
+      _lastActionTimestamp = timestamp;
+      return;
+    }
 
     if (_lastActionTimestamp == null || timestamp.isAfter(_lastActionTimestamp!)) {
       _lastActionTimestamp = timestamp;
@@ -92,32 +160,53 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
       String toolName = 'herramienta';
       switch(tool) {
-        case 'pickaxe': toolName = 'pico'; break;
-        case 'lantern': toolName = 'lámpara'; break;
-        case 'cart': toolName = 'carrito'; break;
+        case 'pico': toolName = 'pico'; break;
+        case 'linterna': toolName = 'linterna'; break;
+        case 'carrito': toolName = 'carrito'; break;
       }
 
       String message = '';
       if (type == 'goal_revealed') {
+        try { FlameAudio.play('mapa.mp3', volume: 0.8); } catch(e){}
         final isGold = action['isGold'] == true;
         message = isGold 
           ? '¡${action['actorName']} ENCONTRÓ EL ORO EN UNA META!' 
           : '${action['actorName']} reveló una meta... era solo piedra.';
+      } else if (type == 'map_used') {
+        if (!isFromMe) {
+          try { FlameAudio.play('mapa.mp3', volume: 0.8); } catch(e){}
+          message = '$actorName usó un mapa';
+        }
+      } else if (type == 'path_placed') {
+        if (!isFromMe) {
+          try { FlameAudio.play('uso_carta_general.mp3', volume: 0.7); } catch(e){}
+        }
+      } else if (type == 'rockfall') {
+        if (!isFromMe) try { FlameAudio.play('dinamita.mp3', volume: 0.8); } catch(e){}
+        message = isFromMe ? 'Usaste una dinamita' : '$actorName usó una dinamita';
       } else if (type == 'break_tool') {
-        if (isFromMe) {
+        if (!isFromMe) try { FlameAudio.play('romper_herramienta.mp3', volume: 0.8); } catch(e){}
+        if (isFromMe && isForMe) {
+          message = 'Rompiste tu $toolName';
+        } else if (isFromMe) {
           message = 'Rompiste el $toolName de $targetName';
         } else if (isForMe) {
           message = '¡$actorName rompió tu $toolName!';
+        } else if (actorId == targetId) {
+          message = '$actorName rompió su $toolName';
         } else {
           message = '$actorName rompió el $toolName de $targetName';
         }
       } else if (type == 'fix_tool') {
+        if (!isFromMe) try { FlameAudio.play('reparar_herramienta.mp3', volume: 0.8); } catch(e){}
         if (isFromMe && isForMe) {
           message = 'Reparaste tu $toolName';
         } else if (isFromMe) {
           message = 'Reparaste el $toolName de $targetName';
         } else if (isForMe) {
           message = '¡$actorName reparó tu $toolName!';
+        } else if (actorId == targetId) {
+          message = '$actorName reparó su $toolName';
         } else {
           message = '$actorName reparó el $toolName de $targetName';
         }
@@ -179,6 +268,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   void _showTurnDialog(String message, bool isMyTurn) {
+    try { FlameAudio.play('siguiente_turno.mp3', volume: 0.8); } catch(e){}
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -200,6 +290,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   void _showRoleDialog(String role) {
     if (_roleShown) return;
     _roleShown = true;
+    try { FlameAudio.play('descubrir_rol.mp3', volume: 0.8); } catch(e){}
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -268,37 +359,83 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   bool _gameOverShown = false;
-  void _showGameOverDialog(String winnerRole) {
+  void _showGameOverDialog(Map<String, dynamic> data, String myRole, FirebaseService service, String gameId) {
     if (_gameOverShown) return;
     _gameOverShown = true;
     _turnTimer?.cancel();
     
+    final winnerRole = data['winnerRole'] ?? 'miner';
     final isMinerWin = winnerRole == 'miner';
-    
+    final didIWin = winnerRole == myRole;
+    final isFinished = data['status'] == 'finished';
+    final int roundNumber = data['roundNumber'] ?? 1;
+
+    final players = Map<String, dynamic>.from(data['players']);
+    final sortedPlayers = players.entries.toList()..sort((a,b) => ((b.value['gold'] ?? 0) as num).compareTo((a.value['gold'] ?? 0) as num));
+    final myUid = service.currentUid;
+    final isHost = players[myUid]?['isHost'] == true;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.black,
         shape: RoundedRectangleBorder(side: BorderSide(color: isMinerWin ? Colors.cyanAccent : Colors.redAccent, width: 3), borderRadius: BorderRadius.circular(20)),
-        title: Text('¡FIN DEL JUEGO!', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(isMinerWin ? Icons.emoji_events : Icons.dangerous, size: 100, color: isMinerWin ? Colors.amber : Colors.redAccent),
-          const SizedBox(height: 20),
-          Text(isMinerWin ? '¡LOS MINEROS HAN GANADO!' : '¡EL SABOTEADOR HA GANADO!', textAlign: TextAlign.center, style: TextStyle(color: isMinerWin ? Colors.cyanAccent : Colors.redAccent, fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          const Text('El oro ha sido encontrado o el camino ha sido bloqueado definitivamente.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
-        ]),
-        actions: [Center(child: ElevatedButton(onPressed: () {
-          DebugLogger.log("GameScreen: Usuario presionó 'VOLVER AL MENÚ' manualmente.", category: "NAV");
-          ref.read(activeGameIdProvider.notifier).state = null;
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        }, style: ElevatedButton.styleFrom(backgroundColor: isMinerWin ? Colors.cyan.shade900 : Colors.red.shade900), child: const Text('VOLVER AL MENÚ', style: TextStyle(color: Colors.white))))],
+        title: Text(isFinished ? '¡FIN DEL JUEGO!' : '¡FIN DE LA RONDA $roundNumber!', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+        content: SizedBox(
+          width: 300,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(isFinished ? Icons.celebration : (didIWin ? Icons.emoji_events : Icons.dangerous), size: 80, color: didIWin || isFinished ? Colors.amber : Colors.redAccent),
+              const SizedBox(height: 10),
+              if (isFinished && sortedPlayers.isNotEmpty)
+                Text('¡GANADOR FINAL:\n${sortedPlayers.first.value['name'].toUpperCase()}!', textAlign: TextAlign.center, style: const TextStyle(color: Colors.amber, fontSize: 22, fontWeight: FontWeight.bold))
+              else
+                Text(didIWin ? '¡GANASTE LA RONDA!' : '¡PERDISTE LA RONDA!', textAlign: TextAlign.center, style: TextStyle(color: didIWin ? Colors.amber : Colors.redAccent, fontSize: 24, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              Text(isMinerWin ? 'RONDA: MINEROS GANAN' : 'RONDA: SABOTEADORES GANAN', textAlign: TextAlign.center, style: TextStyle(color: isMinerWin ? Colors.cyanAccent : Colors.redAccent, fontSize: 14, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              const Text('ORO ACUMULADO', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const Divider(color: Colors.white24),
+              ...sortedPlayers.map((p) {
+                bool isMe = p.key == myUid;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: Text(p.value['name'] + (isMe ? ' (Tú)' : ''), style: TextStyle(color: isMe ? Colors.amber : Colors.white70, fontWeight: isMe ? FontWeight.bold : FontWeight.normal), overflow: TextOverflow.ellipsis)),
+                      Row(children: [Text('${p.value['gold'] ?? 0}', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 16)), const SizedBox(width: 4), const Icon(Icons.stars, color: Colors.amber, size: 16)])
+                    ],
+                  ),
+                );
+              }),
+            ]),
+          ),
+        ),
+        actions: [
+          if (isFinished)
+            Center(child: ElevatedButton(onPressed: () {
+              DebugLogger.log("GameScreen: Usuario finalizó el juego.", category: "NAV");
+              ref.read(activeGameIdProvider.notifier).state = null;
+              service.leaveGame(gameId, myUid);
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            }, style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo), child: const Text('VOLVER AL MENÚ', style: TextStyle(color: Colors.white))))
+          else if (isHost)
+            Center(child: ElevatedButton(onPressed: () async {
+              setState(() => _gameOverShown = false);
+              Navigator.of(context, rootNavigator: true).pop(); // dismiss dialog immediately for host
+              await service.startNextRound(gameId);
+            }, style: ElevatedButton.styleFrom(backgroundColor: Colors.green), child: const Text('EMPEZAR SIGUIENTE RONDA', style: TextStyle(color: Colors.white))))
+          else 
+            const Center(child: Text('Esperando que el Host inicie...', style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic)))
+        ],
       ),
     );
   }
 
   void _showError(String message) {
+    try { FlameAudio.play('error.mp3', volume: 0.6); } catch(e){}
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.redAccent));
   }
@@ -312,6 +449,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (gameId == null) return const Scaffold(body: Center(child: Text('No GameId')));
 
     _gameInstance ??= SaboteurGame(gameId: gameId);
+
+    final snapshotAsync = ref.watch(gameDataProvider(gameId));
+    if (snapshotAsync.hasValue && !_initialTurnHandled) {
+      _initialTurnHandled = true;
+      final snapshot = snapshotAsync.value!;
+      if (snapshot.exists) {
+        final data = snapshot.data() as Map<String, dynamic>;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _handleTurnChange(gameId, data, firebaseService);
+        });
+      }
+    }
+
 
     ref.listen(gameDataProvider(gameId), (previous, next) {
       if (next.hasValue) {
@@ -397,6 +547,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                        else if (gx == 8 && (gy == 5)) goalIdx = 2;
                                        
                                        if (goalIdx != -1) {
+                                          try { FlameAudio.play('mapa.mp3', volume: 0.8); } catch(e){}
                                           final resultData = await firebaseService.revealGoalSecretly(gameId, firebaseService.currentUid, card.toMap(), goalIdx);
                                           setState(() => _hasPlayedOrDiscardedThisTurn = true);
                                           if (mounted) _showMapRevealDialog(goalIdx, resultData);
@@ -409,9 +560,10 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                          _showError("No puedes construir caminos mientras tus herramientas estén rotas"); 
                                          return; 
                                        } 
-
+                                      try { FlameAudio.play('uso_carta_user.mp3', volume: 0.8); } catch(e){}
                                       _gameInstance?.addOptimisticCard(card, gx, gy);
                                     } else if (card is ActionCard && card.actionType == 'rockfall') {
+                                      try { FlameAudio.play('dinamita.mp3', volume: 0.8); } catch(e){}
                                       _gameInstance?.removeOptimisticCard(gx, gy);
                                     } else {
                                       return; 
@@ -485,16 +637,22 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             if (action.actionType == 'break_tool' && pid == firebaseService.currentUid) return false;
                             return ['break_tool', 'fix_tool'].contains(action.actionType);
                           },
-                          onAcceptWithDetails: (details) async {
-                            try {
-                              await firebaseService.playActionOnPlayer(gameId, firebaseService.currentUid, pid, details.data.toMap());
-                              setState(() => _hasPlayedOrDiscardedThisTurn = true);
-                            } catch (e) { _showError(e.toString()); }
-                          },
+                            onAcceptWithDetails: (details) async {
+                              try {
+                                final card = details.data;
+                                if (card is ActionCard && card.actionType == 'break_tool') {
+                                   try { FlameAudio.play('romper_herramienta.mp3', volume: 0.8); } catch(e){}
+                                } else {
+                                   try { FlameAudio.play('reparar_herramienta.mp3', volume: 0.8); } catch(e){}
+                                }
+                                await firebaseService.playActionOnPlayer(gameId, firebaseService.currentUid, pid, details.data.toMap());
+                                setState(() => _hasPlayedOrDiscardedThisTurn = true);
+                              } catch (e) { _showError(e.toString()); }
+                            },
                           builder: (context, candidate, _) => Container(
                             margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(color: candidate.isNotEmpty ? Colors.orangeAccent.withOpacity(0.5) : Colors.black54, borderRadius: BorderRadius.circular(10), border: Border.all(color: pid == currentTurn ? Colors.greenAccent : Colors.white24)),
-                            child: Column(children: [Text(pdata['name'], style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis), if (broken.isNotEmpty) Row(mainAxisAlignment: MainAxisAlignment.center, children: broken.map((t) => Icon(_getIconForTool(t), size: 12, color: Colors.redAccent)).toList())]),
+                            child: Column(children: [Text(pdata['name'] + (pid == firebaseService.currentUid ? ' (Tú)' : ''), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis), if (broken.isNotEmpty) Row(mainAxisAlignment: MainAxisAlignment.center, children: broken.map((t) => Icon(_getIconForTool(t), size: 12, color: Colors.redAccent)).toList())]),
                           ),
                         );
                       }).toList(),
@@ -522,7 +680,11 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
                   return Stack(
                     children: [
-                      Positioned(top: 10, right: 10, child: _buildRoleChip(role)),
+                      Positioned(top: 10, right: 10, child: Row(children: [
+                        _buildStandingsButton(data),
+                        const SizedBox(width: 8),
+                        _buildRoleChip(role),
+                      ])),
                       Positioned(top: 10, left: 0, right: 0, child: Center(child: _buildTurnTimer(isMyTurn, turnPlayerName))),
                       Positioned(bottom: 220, right: 15, child: _buildDeckCounter(deckLength)),
                       if (isMyTurn) Positioned(bottom: 150, right: 10, child: _buildTrashZone(gameId, firebaseService)),
@@ -548,7 +710,39 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     );
   }
 
-  IconData _getIconForTool(String tool) => tool == 'pickaxe' ? Icons.construction : (tool == 'lantern' ? Icons.lightbulb : Icons.shopping_cart);
+  IconData _getIconForTool(String tool) => tool == 'pico' ? Icons.construction : (tool == 'linterna' ? Icons.lightbulb : Icons.shopping_cart);
+
+  Widget _buildStandingsButton(Map<String, dynamic> data) {
+    return IconButton(
+      icon: const Icon(Icons.leaderboard, color: AppColors.brightGold, size: 28),
+      tooltip: 'Puntuaciones',
+      onPressed: () {
+        final players = Map<String, dynamic>.from(data['players']);
+        final sortedPlayers = players.entries.toList()..sort((a,b) => ((b.value['gold'] ?? 0) as num).compareTo((a.value['gold'] ?? 0) as num));
+        final int roundNumber = data['roundNumber'] ?? 1;
+
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppColors.darkBackground,
+            title: Text('CLASIFICACIÓN (Ronda $roundNumber)', style: const TextStyle(color: AppColors.brightGold, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: 300,
+              child: ListView(
+                shrinkWrap: true,
+                children: sortedPlayers.map((p) => ListTile(
+                   leading: const Icon(Icons.person, color: Colors.white70),
+                   title: Text(p.value['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text('${p.value['gold'] ?? 0}', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18)), const SizedBox(width: 4), const Icon(Icons.stars, color: Colors.amber, size: 20)]),
+                )).toList()
+              ),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CERRAR'))]
+          )
+        );
+      }
+    );
+  }
 
   Widget _buildRoleChip(String role) {
     final isSabo = role == 'saboteur';

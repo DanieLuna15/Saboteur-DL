@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
+import 'package:flame/particles.dart';
 import 'components/path_card_component.dart';
 import '../models/card_model.dart';
 
@@ -15,6 +17,8 @@ class SaboteurGame extends FlameGame {
 
   final Map<String, PathCardComponent> _renderedCards = {};
   final Map<String, PathCardComponent> _optimisticComponents = {};
+  final Map<int, PathCardComponent> _goalComponents = {};
+
 
   SaboteurGame({required this.gameId});
 
@@ -70,7 +74,11 @@ class SaboteurGame extends FlameGame {
 
     final keysToRemove = _renderedCards.keys.where((k) => !serverCardKeys.contains(k)).toList();
     for (var k in keysToRemove) {
-        _renderedCards[k]?.removeFromParent();
+        final comp = _renderedCards[k];
+        if (comp != null) {
+           _triggerDustEffect(comp.position);
+           comp.die();
+        }
         _renderedCards.remove(k);
     }
 
@@ -88,7 +96,7 @@ class SaboteurGame extends FlameGame {
   void _renderRealCard(PathCard card, int x, int y, String key) {
     final comp = PathCardComponent(
       card: card,
-      position: Vector2(x * grid.tileWidth, y * grid.tileHeight),
+      position: Vector2(x * grid.tileWidth + grid.tileWidth / 2, y * grid.tileHeight + grid.tileHeight / 2),
       size: Vector2(grid.tileWidth, grid.tileHeight),
     );
     _renderedCards[key] = comp;
@@ -97,7 +105,7 @@ class SaboteurGame extends FlameGame {
 
   void _refreshSpecialCards(List<int> revealedIndices, int goldIdx, List<dynamic>? goalShapes) {
     children.whereType<PathCardComponent>().forEach((c) {
-       if (c.card.id == 'start' || c.card.id.startsWith('goal')) {
+       if (c.card.id == 'start') {
           c.removeFromParent();
        }
     });
@@ -112,7 +120,7 @@ class SaboteurGame extends FlameGame {
 
     final comp = PathCardComponent(
       card: card,
-      position: Vector2(x * grid.tileWidth, y * grid.tileHeight),
+      position: Vector2(x * grid.tileWidth + grid.tileWidth / 2, y * grid.tileHeight + grid.tileHeight / 2),
       size: Vector2(grid.tileWidth, grid.tileHeight),
       isOptimistic: true,
     );
@@ -122,9 +130,9 @@ class SaboteurGame extends FlameGame {
 
   void removeOptimisticCard(int x, int y) {
     final key = "${x}_$y";
-    _renderedCards[key]?.removeFromParent();
+    _renderedCards[key]?.die();
     _renderedCards.remove(key);
-    _optimisticComponents[key]?.removeFromParent();
+    _optimisticComponents[key]?.die();
     _optimisticComponents.remove(key);
   }
 
@@ -137,7 +145,7 @@ class SaboteurGame extends FlameGame {
   void _addStartCard() {
     add(PathCardComponent(
       card: PathCard(id: 'start', name: 'Inicio', imageUrl: '', connections: {PathDirection.top: true, PathDirection.bottom: true, PathDirection.left: true, PathDirection.right: true}),
-      position: Vector2(0 * grid.tileWidth, 3 * grid.tileHeight),
+      position: Vector2(0 * grid.tileWidth + grid.tileWidth / 2, 3 * grid.tileHeight + grid.tileHeight / 2),
       size: Vector2(grid.tileWidth, grid.tileHeight),
     ));
   }
@@ -151,13 +159,76 @@ class SaboteurGame extends FlameGame {
            final shape = goalShapes[i] as Map<String, dynamic>;
            conns = {PathDirection.top: shape['top'] ?? false, PathDirection.bottom: shape['bottom'] ?? false, PathDirection.left: shape['left'] ?? false, PathDirection.right: shape['right'] ?? false};
         }
-        add(PathCardComponent(
-          card: PathCard(id: 'goal_$i', name: isRevealed ? (isGold ? '¡ORO!' : 'Piedra') : 'Meta', imageUrl: '', connections: conns),
-          position: Vector2(8 * grid.tileWidth, (1 + i * 2) * grid.tileHeight),
-          size: Vector2(grid.tileWidth, grid.tileHeight),
-          isRevealed: isRevealed,
-        ));
+        
+        if (_goalComponents.containsKey(i)) {
+          final existing = _goalComponents[i]!;
+          if (isRevealed && !existing.isRevealed) {
+            existing.flip(PathCard(id: 'goal_$i', name: isGold ? '¡ORO!' : 'Piedra', imageUrl: '', connections: conns));
+          }
+        } else {
+          final component = PathCardComponent(
+            card: PathCard(id: 'goal_$i', name: isRevealed ? (isGold ? '¡ORO!' : 'Piedra') : 'Meta', imageUrl: '', connections: conns),
+            position: Vector2(8 * grid.tileWidth + grid.tileWidth / 2, (1 + i * 2) * grid.tileHeight + grid.tileHeight / 2),
+            size: Vector2(grid.tileWidth, grid.tileHeight),
+            isRevealed: isRevealed,
+          );
+          _goalComponents[i] = component;
+          add(component);
+        }
     }
+  }
+
+  void _triggerDustEffect(Vector2 position) {
+    final random = math.Random();
+    
+    // 1. Efecto de Destello (Flash central)
+    add(
+      ParticleSystemComponent(
+        particle: CircleParticle(
+          radius: 40,
+          lifespan: 0.2,
+          paint: Paint()..color = Colors.white.withOpacity(0.8),
+        ),
+      ),
+    );
+
+    // 2. Partículas de Fuego (Naranja/Rojo)
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 25,
+          lifespan: 0.6,
+          generator: (i) => AcceleratedParticle(
+            acceleration: Vector2(0, 200),
+            speed: Vector2(math.cos(i) * 150, math.sin(i) * 150),
+            position: position.clone(),
+            child: CircleParticle(
+              radius: 3 + random.nextDouble() * 5,
+              paint: Paint()..color = (i % 2 == 0 ? Colors.orange : Colors.redAccent).withOpacity(0.8),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 3. Partículas de Humo (Gris oscuro)
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 20,
+          lifespan: 1.2,
+          generator: (i) => AcceleratedParticle(
+            acceleration: Vector2(0, -50),
+            speed: Vector2(random.nextDouble() * 100 - 50, -random.nextDouble() * 100),
+            position: position.clone(),
+            child: CircleParticle(
+              radius: 4 + random.nextDouble() * 10,
+              paint: Paint()..color = Colors.black54.withOpacity(0.4),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   GridInfo get grid => GridInfo();
