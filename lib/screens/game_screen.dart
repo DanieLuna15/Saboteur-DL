@@ -485,7 +485,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         child: Stack(
           children: [
             Positioned.fill(
-              bottom: 140,
+              bottom: 250, // Subimos un poco el tablero para dejar espacio a la lista horizontal
               child: Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: FittedBox(
@@ -511,7 +511,6 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                   final RenderBox box = context.findRenderObject() as RenderBox;
                                   final Offset localOffset = box.globalToLocal(details.offset);
                                   
-                                  // Normalizamos la posición basándonos en el tamaño real del widget detectado
                                   final double relX = localOffset.dx / box.size.width;
                                   final double relY = localOffset.dy / box.size.height;
                                   final int gx = (relX * 10).floor();
@@ -580,7 +579,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                   return Container(
                                     width: 800, height: 770,
                                     decoration: BoxDecoration(
-                                      border: Border.all(color: Colors.white10, width: 1), // Borde sutil para verificar alineación
+                                      border: Border.all(color: Colors.white10, width: 1),
                                       color: Colors.transparent,
                                     ),
                                     child: Stack(
@@ -615,28 +614,36 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               ),
             ),
 
+            // Nueva Lista Horizontal de Jugadores (Debajo del tablero)
             Positioned(
-              left: 10, top: 60, bottom: 250, width: 120,
+              left: 0, right: 0, bottom: 155, height: 85,
               child: Consumer(builder: (context, ref, _) {
                 final gameAsync = ref.watch(gameDataProvider(gameId));
                 return gameAsync.when(
                   data: (snapshot) {
                     if (!snapshot.exists) return const SizedBox();
-                    final players = snapshot.get('players') as Map;
-                    final currentTurn = snapshot.get('currentTurn');
+                    final data = snapshot.data() as Map<String, dynamic>;
+                    final players = data['players'] as Map;
+                    final currentTurn = data['currentTurn'];
                     final isMyTurn = currentTurn == firebaseService.currentUid;
-                    return ListView(
-                      children: players.entries.map((e) {
-                        final pid = e.key;
-                        final pdata = e.value;
-                        final broken = List<String>.from(pdata['brokenTools'] ?? []);
-                        return DragTarget<CardModel>(
-                          onWillAcceptWithDetails: (details) {
-                            if (!isMyTurn || _hasPlayedOrDiscardedThisTurn || details.data is! ActionCard) return false;
-                            final action = details.data as ActionCard;
-                            if (action.actionType == 'break_tool' && pid == firebaseService.currentUid) return false;
-                            return ['break_tool', 'fix_tool'].contains(action.actionType);
-                          },
+                    
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        children: players.entries.map((e) {
+                          final pid = e.key;
+                          final pdata = e.value;
+                          final cardCount = (pdata['hand'] as List? ?? []).length;
+                          final broken = List<String>.from(pdata['brokenTools'] ?? []);
+                          
+                          return DragTarget<CardModel>(
+                            onWillAcceptWithDetails: (details) {
+                              if (!isMyTurn || _hasPlayedOrDiscardedThisTurn || details.data is! ActionCard) return false;
+                              final action = details.data as ActionCard;
+                              if (action.actionType == 'break_tool' && pid == firebaseService.currentUid) return false;
+                              return ['break_tool', 'fix_tool'].contains(action.actionType);
+                            },
                             onAcceptWithDetails: (details) async {
                               try {
                                 final card = details.data;
@@ -649,13 +656,50 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                 setState(() => _hasPlayedOrDiscardedThisTurn = true);
                               } catch (e) { _showError(e.toString()); }
                             },
-                          builder: (context, candidate, _) => Container(
-                            margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(color: candidate.isNotEmpty ? Colors.orangeAccent.withOpacity(0.5) : Colors.black54, borderRadius: BorderRadius.circular(10), border: Border.all(color: pid == currentTurn ? Colors.greenAccent : Colors.white24)),
-                            child: Column(children: [Text(pdata['name'] + (pid == firebaseService.currentUid ? ' (Tú)' : ''), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis), if (broken.isNotEmpty) Row(mainAxisAlignment: MainAxisAlignment.center, children: broken.map((t) => Icon(_getIconForTool(t), size: 12, color: Colors.redAccent)).toList())]),
-                          ),
-                        );
-                      }).toList(),
+                            builder: (context, candidate, _) => Container(
+                              width: 130,
+                              margin: const EdgeInsets.only(right: 10),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: candidate.isNotEmpty ? Colors.orangeAccent.withOpacity(0.5) : Colors.black87,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: pid == currentTurn ? Colors.greenAccent : Colors.white24,
+                                  width: pid == currentTurn ? 2 : 1
+                                ),
+                                boxShadow: pid == currentTurn ? [const BoxShadow(color: Colors.greenAccent, blurRadius: 4)] : null,
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    pdata['name'] + (pid == firebaseService.currentUid ? ' (Tú)' : ''),
+                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                    textAlign: TextAlign.center,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Cartas: ($cardCount)',
+                                    style: const TextStyle(color: AppColors.cream, fontSize: 10),
+                                  ),
+                                  if (broken.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: broken.map((t) => Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 1),
+                                          child: Icon(_getIconForTool(t), size: 14, color: Colors.redAccent),
+                                        )).toList(),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
                     );
                   },
                   loading: () => const SizedBox(),
@@ -680,12 +724,25 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
                   return Stack(
                     children: [
-                      Positioned(top: 10, right: 10, child: Row(children: [
-                        _buildStandingsButton(data),
-                        const SizedBox(width: 8),
-                        _buildRoleChip(role),
-                      ])),
-                      Positioned(top: 10, left: 0, right: 0, child: Center(child: _buildTurnTimer(isMyTurn, turnPlayerName))),
+                      Positioned(
+                        top: 5, left: 10, right: 10,
+                        child: Column(
+                          children: [
+                            // Fila 1: Temporizador de Turno (Siempre al centro)
+                            Center(child: _buildTurnTimer(isMyTurn, turnPlayerName)),
+                            const SizedBox(height: 5),
+                            // Fila 2: Botones de Acción (Alineados a la derecha)
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                _buildStandingsButton(data),
+                                const SizedBox(width: 8),
+                                _buildRoleChip(role),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                       Positioned(bottom: 220, right: 15, child: _buildDeckCounter(deckLength)),
                       if (isMyTurn) Positioned(bottom: 150, right: 10, child: _buildTrashZone(gameId, firebaseService)),
                       if (isMyTurn && _hasPlayedOrDiscardedThisTurn) Positioned(bottom: 155, left: 10, child: _buildEndTurnButton(gameId, firebaseService)),

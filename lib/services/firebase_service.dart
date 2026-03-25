@@ -233,7 +233,14 @@ class FirebaseService {
       final myDir = n.$3;
       final neighborDir = n.$4;
 
-      final neighborData = pathCards.firstWhere((c) => c['x'] == nx && c['y'] == ny, orElse: () => {});
+      // Buscar el vecino en las cartas puestas O si es la carta de inicio
+      Map<String, dynamic> neighborData = {};
+      if (nx == 0 && ny == 3) {
+        neighborData = {'connections': {'top': true, 'bottom': true, 'left': true, 'right': true}};
+      } else {
+        neighborData = pathCards.firstWhere((c) => c['x'] == nx && c['y'] == ny, orElse: () => {});
+      }
+
       if (neighborData.isNotEmpty) {
         hasNeighbor = true;
         final nConns = neighborData['connections'] as Map;
@@ -246,28 +253,46 @@ class FirebaseService {
         if (myHas != nHas) {
           throw Exception("Las conexiones no coinciden (corte en $myDir)");
         }
-      }
-      
-      // Verificar conexión con metas ocultas (solo si el camino intenta entrar)
-      if (nx == 8 && (ny == 1 || ny == 3 || ny == 5)) {
-        // Por simplificación, las metas ocultas aceptan conexiones desde cualquier lado si son reveladas, 
-        // pero mientras están ocultas, solo validamos que si YO pongo una conexión hacia ella, esté bien.
-        // Las metas siempre tienen todas las conexiones centrales.
+        
+        // Además, si el vecino es parte del camino conectado al inicio,
+        // este nuevo movimiento hereda esa propiedad (reemplaza touchesConnected parcial)
       }
     }
 
     if (!hasNeighbor) throw Exception("La carta debe estar conectada al camino existente");
     
-    // 2. ¿Está connectedToStart? (Opcional pero recomendado para Saboteur real)
+    // 2. ¿Está connectedToStart? 
+    // En Saboteur, la carta debe estar conectada al inicio a través de un camino válido.
+    // Para simplificar la validación de colocación, ya verificamos "corte" arriba.
+    // Pero falta asegurar que este lugar sea alcanzable desde el inicio.
     final connected = _getConnectedPath(pathCards);
-    if (!connected.contains((x, y)) && !((x == 0 && (y == 2 || y == 4)) || (x == 1 && y == 3) || (x==0 && y==3))) {
-       // Si no es adyacente al inicio, debe estar conectado al grupo que viene del inicio
-       bool touchesConnected = false;
-       for (var n in neighbors) {
-         if (connected.contains((n.$1, n.$2))) touchesConnected = true;
-       }
-       if (!touchesConnected) throw Exception("No hay conexión con el inicio");
+    bool isReachable = false;
+    
+    // Si somos vecinos del start (0,3) y tenemos conexión hacia él, somos alcanzables.
+    if ((x == 0 && (y == 2 || y == 4)) || (x == 1 && y == 3)) {
+       final myConns = card.connections;
+       if (x == 1 && y == 3 && myConns[PathDirection.left] == true) isReachable = true;
+       if (x == 0 && y == 2 && myConns[PathDirection.bottom] == true) isReachable = true;
+       if (x == 0 && y == 4 && myConns[PathDirection.top] == true) isReachable = true;
     }
+    
+    if (!isReachable) {
+       for (var n in neighbors) {
+         if (connected.contains((n.$1, n.$2))) {
+            // Verificar que hay conexión real del vecino hacia nosotros
+            final nData = pathCards.firstWhere((c) => c['x'] == n.$1 && c['y'] == n.$2, orElse: () => {});
+            if (nData.isNotEmpty) {
+               final nConns = nData['connections'] as Map;
+               if (nConns[n.$4] == true) {
+                 isReachable = true;
+                 break;
+               }
+            }
+         }
+       }
+    }
+    
+    if (!isReachable) throw Exception("La carta debe estar conectada por un camino al inicio");
   }
 
   Set<(int, int)> _getConnectedPath(List<Map<String, dynamic>> pathCards) {

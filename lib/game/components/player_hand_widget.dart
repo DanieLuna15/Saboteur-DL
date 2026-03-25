@@ -48,6 +48,7 @@ class PlayerHandWidget extends StatelessWidget {
           Expanded(
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 20),
               itemCount: handData.length,
               itemBuilder: (context, index) {
