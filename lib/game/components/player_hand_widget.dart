@@ -3,7 +3,7 @@ import '../../models/card_model.dart';
 import '../../theme/app_colors.dart';
 import 'path_card_painter.dart';
 
-class PlayerHandWidget extends StatelessWidget {
+class PlayerHandWidget extends StatefulWidget {
   final List<dynamic> handData;
   final bool isMyTurn;
   final bool isInteractive;
@@ -16,16 +16,35 @@ class PlayerHandWidget extends StatelessWidget {
   });
 
   @override
+  State<PlayerHandWidget> createState() => _PlayerHandWidgetState();
+}
+
+class _PlayerHandWidgetState extends State<PlayerHandWidget> {
+  late ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       height: 140,
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.9),
-        border: Border(top: BorderSide(color: isMyTurn ? Colors.greenAccent : AppColors.primaryGold, width: 3)),
+        border: Border(top: BorderSide(color: widget.isMyTurn ? Colors.greenAccent : AppColors.primaryGold, width: 3)),
         boxShadow: [
           BoxShadow(
-            color: isMyTurn ? Colors.greenAccent.withOpacity(0.2) : Colors.black,
+            color: widget.isMyTurn ? Colors.greenAccent.withOpacity(0.2) : Colors.black,
             blurRadius: 15,
             spreadRadius: 5,
           )
@@ -33,31 +52,48 @@ class PlayerHandWidget extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Text(
-              isMyTurn ? 'TU MANO (ARRASTRA UNA CARTA)' : 'TU MANO',
-              style: TextStyle(
-                color: isMyTurn ? Colors.greenAccent : Colors.white70,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2
+          // Área del título que permite hacer scroll arrastrando
+          GestureDetector(
+            onHorizontalDragUpdate: (details) {
+              if (_scrollController.hasClients) {
+                _scrollController.jumpTo(
+                  (_scrollController.offset - details.delta.dx).clamp(
+                    0,
+                    _scrollController.position.maxScrollExtent,
+                  ),
+                );
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              color: Colors.transparent, // Recibe toques
+              padding: const EdgeInsets.only(bottom: 8.0, top: 4.0),
+              child: Center(
+                child: Text(
+                  widget.isMyTurn ? 'TU MANO (ARRASTRA UNA CARTA O DESLIZA AQUÍ)' : 'TU MANO',
+                  style: TextStyle(
+                    color: widget.isMyTurn ? Colors.greenAccent : Colors.white70,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2
+                  ),
+                ),
               ),
             ),
           ),
           Expanded(
             child: ListView.builder(
+              controller: _scrollController,
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: handData.length,
+              itemCount: widget.handData.length,
               itemBuilder: (context, index) {
-                // USAR CardModel.fromMap para soportar tanto PathCard como ActionCard
-                final card = CardModel.fromMap(Map<String, dynamic>.from(handData[index]));
+                final card = CardModel.fromMap(Map<String, dynamic>.from(widget.handData[index]));
                 
                 return Draggable<CardModel>(
                   data: card,
-                  maxSimultaneousDrags: isInteractive ? 1 : 0,
+                  maxSimultaneousDrags: widget.isInteractive ? 1 : 0,
                   dragAnchorStrategy: pointerDragAnchorStrategy,
                   feedback: Material(
                     color: Colors.transparent,

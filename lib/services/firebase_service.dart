@@ -405,7 +405,7 @@ class FirebaseService {
       'players': players,
       'recentAction': {
         'type': type,
-        'tool': tool,
+        'tool': type == 'fix_tool' ? cardData['targetTool'] : tool,
         'actorName': actorName,
         'actorId': actorUid,
         'targetName': targetName,
@@ -431,6 +431,7 @@ class FirebaseService {
         'actorName': players[uid]['name'],
         'actorId': uid,
         'timestamp': FieldValue.serverTimestamp(),
+        'goalIndex': goalIndex,
       }
     });
 

@@ -158,11 +158,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       final isFromMe = actorId == myUid;
       final isForMe = targetId == myUid;
 
-      String toolName = 'herramienta';
+      String toolName = tool ?? 'herramienta';
       switch(tool) {
-        case 'pico': toolName = 'pico'; break;
-        case 'linterna': toolName = 'linterna'; break;
-        case 'carrito': toolName = 'carrito'; break;
+        case 'pickaxe':
+        case 'pico': 
+          toolName = 'pico'; break;
+        case 'lantern':
+        case 'linterna': 
+          toolName = 'linterna'; break;
+        case 'cart':
+        case 'carrito': 
+          toolName = 'carrito'; break;
       }
 
       String message = '';
@@ -173,9 +179,11 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           ? '¡${action['actorName']} ENCONTRÓ EL ORO EN UNA META!' 
           : '${action['actorName']} reveló una meta... era solo piedra.';
       } else if (type == 'map_used') {
-        if (!isFromMe) {
-          try { FlameAudio.play('mapa.mp3', volume: 0.8); } catch(e){}
-          message = '$actorName usó un mapa';
+        try { FlameAudio.play('mapa.mp3', volume: 0.8); } catch(e){}
+        message = isFromMe ? 'Usaste un mapa' : '$actorName usó un mapa';
+        final goalIndex = action['goalIndex'] as int?;
+        if (goalIndex != null) {
+          _gameInstance?.triggerMapShine(goalIndex);
         }
       } else if (type == 'path_placed') {
         if (!isFromMe) {
@@ -222,16 +230,73 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   void _showActionAlert(String message, bool isNegative) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: isNegative ? Colors.red[900] : Colors.green[900],
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.only(bottom: 250, left: 20, right: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: isNegative ? Colors.redAccent : Colors.greenAccent)),
-      )
+    
+    final overlay = Overlay.of(context);
+    if (overlay == null) {
+      // Fallback a SnackBar si no hay Overlay disponible
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: isNegative ? Colors.redAccent : Colors.teal.shade700,
+          behavior: SnackBarBehavior.floating,
+        )
+      );
+      return;
+    }
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => Positioned(
+        top: 100, // Misma posición que las notificaciones de sistema
+        left: 20,
+        right: 20,
+        child: Material(
+          color: Colors.transparent,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 300),
+            builder: (context, value, child) => Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, (1 - value) * -20),
+                child: child,
+              ),
+            ),
+            child: GestureDetector(
+              onTap: () { if (entry.mounted) entry.remove(); },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: (isNegative ? Colors.redAccent : Colors.teal.shade700).withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 10)],
+                ),
+                child: Row(
+                  children: [
+                    Icon(isNegative ? Icons.warning_amber : Icons.info_outline, color: Colors.white),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const Icon(Icons.close, color: Colors.white54, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
+
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 4), () {
+      if (entry.mounted) entry.remove();
+    });
   }
 
   void _startTimer(String gameId, String uid, FirebaseService service, bool isMyTurn) {
@@ -415,11 +480,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         ),
         actions: [
           if (isFinished)
-            Center(child: ElevatedButton(onPressed: () {
+            Center(child: ElevatedButton(onPressed: () async {
               DebugLogger.log("GameScreen: Usuario finalizó el juego.", category: "NAV");
-              ref.read(activeGameIdProvider.notifier).state = null;
-              service.leaveGame(gameId, myUid);
-              Navigator.of(context).popUntil((route) => route.isFirst);
+              if (isHost) {
+                await service.deleteGame(gameId);
+              } else {
+                await service.leaveGame(gameId, myUid);
+              }
+              if (context.mounted) {
+                ref.read(activeGameIdProvider.notifier).state = null;
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
             }, style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo), child: const Text('VOLVER AL MENÚ', style: TextStyle(color: Colors.white))))
           else if (isHost)
             Center(child: ElevatedButton(onPressed: () async {
@@ -435,9 +506,64 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   void _showError(String message) {
-    try { FlameAudio.play('error.mp3', volume: 0.6); } catch(e){}
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.redAccent));
+    try { FlameAudio.play('error.mp3', volume: 0.5); } catch(e) {}
+    
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    
+    entry = OverlayEntry(
+      builder: (context) => Positioned(
+        top: 100,
+        left: 20,
+        right: 20,
+        child: Material(
+          color: Colors.transparent,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 300),
+            builder: (context, value, child) => Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, (1 - value) * -20),
+                child: child,
+              ),
+            ),
+            child: GestureDetector(
+              onTap: () {
+                 if (entry.mounted) entry.remove();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 10)],
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.white),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        message,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const Icon(Icons.close, color: Colors.white54, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (entry.mounted) entry.remove();
+    });
   }
 
   int max(int a, int b) => a > b ? a : b;
@@ -473,6 +599,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           _gameInstance?.updateGameState(data);
         } else {
           DebugLogger.log("GameScreen: ¡AVISO! El documento de juego ya no existe en la DB.", category: "STREAM");
+          // Si el juego ha sido eliminado (limpieza), expulsamos a todos al menú
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              ref.read(activeGameIdProvider.notifier).state = null;
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            }
+          });
         }
       } else if (next.hasError) {
         DebugLogger.log("GameScreen: Error en el stream: ${next.error}", category: "ERROR");
@@ -767,7 +900,12 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     );
   }
 
-  IconData _getIconForTool(String tool) => tool == 'pico' ? Icons.construction : (tool == 'linterna' ? Icons.lightbulb : Icons.shopping_cart);
+  IconData _getIconForTool(String tool) {
+    if (tool == 'pico' || tool == 'pickaxe') return Icons.construction;
+    if (tool == 'linterna' || tool == 'lantern') return Icons.lightbulb;
+    if (tool == 'carrito' || tool == 'cart') return Icons.shopping_cart;
+    return Icons.settings;
+  }
 
   Widget _buildStandingsButton(Map<String, dynamic> data) {
     return IconButton(

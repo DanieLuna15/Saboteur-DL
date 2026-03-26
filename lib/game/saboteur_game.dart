@@ -164,6 +164,11 @@ class SaboteurGame extends FlameGame {
           final existing = _goalComponents[i]!;
           if (isRevealed && !existing.isRevealed) {
             existing.flip(PathCard(id: 'goal_$i', name: isGold ? '¡ORO!' : 'Piedra', imageUrl: '', connections: conns));
+          } else if (!isRevealed && existing.isRevealed) {
+            // Reset de la carta si ya no está revelada (nueva ronda)
+            existing.isRevealed = false;
+            existing.card = PathCard(id: 'goal_$i', name: 'Meta', imageUrl: '', connections: conns);
+            existing.resetCachedPainter();
           }
         } else {
           final component = PathCardComponent(
@@ -176,6 +181,31 @@ class SaboteurGame extends FlameGame {
           add(component);
         }
     }
+  }
+
+  void triggerMapShine(int goalIndex) {
+    if (!_goalComponents.containsKey(goalIndex)) return;
+    final comp = _goalComponents[goalIndex]!;
+    comp.glow(); // Nuevo efecto perimetral
+
+    // Partículas doradas refinadas
+    add(
+      ParticleSystemComponent(
+        particle: Particle.generate(
+          count: 20,
+          lifespan: 1.0,
+          generator: (i) => AcceleratedParticle(
+            acceleration: Vector2(0, 50),
+            speed: Vector2(math.cos(i * 0.3) * 100, math.sin(i * 0.3) * 100),
+            position: comp.position.clone(),
+            child: CircleParticle(
+              radius: 1 + math.Random().nextDouble() * 2,
+              paint: Paint()..color = Colors.amberAccent.withOpacity(0.8),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _triggerDustEffect(Vector2 position) {

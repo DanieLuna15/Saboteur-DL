@@ -41,7 +41,41 @@ class PathCardComponent extends PositionComponent with HasPaint implements Opaci
     // Giro instantáneo removiendo la animación por ahora
     isRevealed = true;
     card = revealedCard;
+    resetCachedPainter();
+  }
+
+  void resetCachedPainter() {
     _cachedPainter = null;
+  }
+
+  void glow() {
+    // Componente de resplandor (un poco más grande que la carta)
+    final glowComp = RectangleComponent(
+      size: size + Vector2.all(20),
+      position: size / 2,
+      anchor: Anchor.center,
+      paint: Paint()
+        ..color = Colors.amberAccent.withOpacity(0.0)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 15),
+    );
+    
+    add(glowComp);
+
+    // Animación de pulso de luz (entrada rápida, pulso y salida suave)
+    glowComp.add(OpacityEffect.to(
+      0.8,
+      EffectController(duration: 0.3, curve: Curves.easeOut),
+    ));
+    
+    glowComp.add(ScaleEffect.by(
+      Vector2.all(1.15),
+      EffectController(duration: 0.5, reverseDuration: 0.5, repeatCount: 1),
+    ));
+
+    glowComp.add(OpacityEffect.fadeOut(
+      EffectController(duration: 0.8, startDelay: 1.0),
+      onComplete: () => glowComp.removeFromParent(),
+    ));
   }
 
   void die() {
