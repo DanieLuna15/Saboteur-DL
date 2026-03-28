@@ -97,13 +97,17 @@ class _PlayerHandWidgetState extends State<PlayerHandWidget> {
                   dragAnchorStrategy: pointerDragAnchorStrategy,
                   feedback: Material(
                     color: Colors.transparent,
-                    child: CardItem(card: card, isDragging: true),
+                    child: SizedBox(
+                      width: 85,
+                      height: 126, // Proporción 310x460 (85 * 460 / 310)
+                      child: CardItem(card: card, isDragging: true, isHighlight: true),
+                    ),
                   ),
                   childWhenDragging: Opacity(
                     opacity: 0.3,
                     child: CardItem(card: card),
                   ),
-                  child: CardItem(card: card),
+                  child: CardItem(card: card, isHighlight: widget.isMyTurn),
                 );
               },
             ),
@@ -117,37 +121,56 @@ class _PlayerHandWidgetState extends State<PlayerHandWidget> {
 class CardItem extends StatelessWidget {
   final CardModel card;
   final bool isDragging;
+  final bool isHighlight;
 
-  const CardItem({required this.card, this.isDragging = false, super.key});
+  const CardItem({
+    required this.card, 
+    this.isDragging = false, 
+    this.isHighlight = false, 
+    super.key
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 80,
-      margin: const EdgeInsets.symmetric(horizontal: 6),
-      child: CustomPaint(
-        painter: PathCardPainter(card: card, isHighlight: isDragging),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          alignment: Alignment.bottomCenter,
-          padding: const EdgeInsets.only(bottom: 4),
-          child: Container(
-             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-             decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4)
-             ),
-             child: Text(
-                card.name.toUpperCase(),
-                style: const TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+      width: 85,
+      height: 126, // Proporción 310x460
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      child: Stack(
+        children: [
+          // Fondo o dibujo base (Painter)
+          Positioned.fill(
+            child: CustomPaint(
+              painter: PathCardPainter(
+                card: card, 
+                isHighlight: isHighlight || isDragging,
+                isFaceDown: false,
               ),
+            ),
           ),
-        ),
+          // Imagen si es carta de acción
+          if (card.imageUrl.isNotEmpty)
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset(
+                  card.imageUrl, 
+                  fit: BoxFit.fill,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox(),
+                ),
+              ),
+            ),
+          // Efecto visual durante el arrastre (opcional)
+          if (isDragging)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.greenAccent.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

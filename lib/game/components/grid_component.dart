@@ -6,7 +6,7 @@ class GridComponent extends PositionComponent with HasGameRef<SaboteurGame> {
   final int rows = 7;
   final int cols = 10;
   final double tileWidth = 80;
-  final double tileHeight = 110;
+  final double tileHeight = 119;
 
   @override
   Future<void> onLoad() async {

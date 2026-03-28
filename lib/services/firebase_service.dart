@@ -559,7 +559,7 @@ class FirebaseService {
   List<Map<String, dynamic>> _generateDeck() {
     final List<Map<String, dynamic>> deck = [];
     final random = Random();
-    final pathTemplates = [
+    final goodPaths = [
       {'name': 'Recta V', 'conn': {'top': true, 'bottom': true}},
       {'name': 'Recta H', 'conn': {'left': true, 'right': true}},
       {'name': 'Curva SD', 'conn': {'top': true, 'right': true}},
@@ -569,24 +569,47 @@ class FirebaseService {
       {'name': 'T-Inter', 'conn': {'left': true, 'right': true, 'bottom': true}},
       {'name': 'T-Inter Inv', 'conn': {'left': true, 'right': true, 'top': true}},
       {'name': 'Cruz', 'conn': {'top': true, 'bottom': true, 'left': true, 'right': true}},
-      {'name': 'Bloqueo', 'conn': {'top': true}, 'hasCenter': false},
     ];
-    for (int i = 0; i < 40; i++) {
-        final t = pathTemplates[random.nextInt(pathTemplates.length)];
-        deck.add({'id': 'p_$i', 'name': t['name'], 'type': 'path', 'imageUrl': '', 'connections': t['conn'], 'hasCenter': t['hasCenter'] ?? true});
+
+    final blockedPaths = [
+      {'name': 'Recta V Bloq', 'conn': {'top': true, 'bottom': true}, 'hasCenter': false},
+      {'name': 'Recta H Bloq', 'conn': {'left': true, 'right': true}, 'hasCenter': false},
+      {'name': 'Curva SD Bloq', 'conn': {'top': true, 'right': true}, 'hasCenter': false},
+      {'name': 'Curva SI Bloq', 'conn': {'top': true, 'left': true}, 'hasCenter': false},
+      {'name': 'Curva ID Bloq', 'conn': {'bottom': true, 'right': true}, 'hasCenter': false},
+      {'name': 'Curva II Bloq', 'conn': {'bottom': true, 'left': true}, 'hasCenter': false},
+      {'name': 'T-Inter Bloq', 'conn': {'left': true, 'right': true, 'bottom': true}, 'hasCenter': false},
+      {'name': 'T-Inv Bloq', 'conn': {'left': true, 'right': true, 'top': true}, 'hasCenter': false},
+      {'name': 'Cruz Bloq', 'conn': {'top': true, 'bottom': true, 'left': true, 'right': true}, 'hasCenter': false},
+      {'name': 'Fin de Camino', 'conn': {'bottom': true}, 'hasCenter': false},
+    ];
+
+    // Añadir exactamente una de cada carta bloqueada
+    int cardIdCounter = 0;
+    for (var b in blockedPaths) {
+      deck.add({'id': 'p_${cardIdCounter++}', 'name': b['name'], 'type': 'path', 'imageUrl': '', 'connections': b['conn'], 'hasCenter': false});
+    }
+
+    // Rellenar hasta 40 cartas con caminos buenos aleatorios
+    while (deck.length < 40) {
+      final t = goodPaths[random.nextInt(goodPaths.length)];
+      deck.add({'id': 'p_${cardIdCounter++}', 'name': t['name'], 'type': 'path', 'imageUrl': '', 'connections': t['conn'], 'hasCenter': true});
     }
     for (int i = 0; i < 4; i++) {
-        deck.add({'id': 'dyn_$i', 'name': 'Dinamita', 'type': 'action', 'actionType': 'rockfall', 'imageUrl': ''});
-        deck.add({'id': 'map_$i', 'name': 'Mapa', 'type': 'action', 'actionType': 'map', 'imageUrl': ''});
+        deck.add({'id': 'dyn_$i', 'name': 'Dinamita', 'type': 'action', 'actionType': 'rockfall', 'imageUrl': 'assets/images_cards/dinamita.png'});
+        deck.add({'id': 'map_$i', 'name': 'Mapa', 'type': 'action', 'actionType': 'map', 'imageUrl': 'assets/images_cards/abrir_mapa.png'});
     }
     final tools = ['pico', 'linterna', 'carrito'];
     for (var tool in tools) {
-        deck.add({'id': 'brk_${tool}_${random.nextInt(100)}', 'name': 'Romper $tool', 'type': 'action', 'actionType': 'break_tool', 'targetTool': tool, 'imageUrl': ''});
-        deck.add({'id': 'fix_${tool}_${random.nextInt(100)}', 'name': 'Reparar $tool', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': [tool], 'imageUrl': ''});
+        String toolImg = tool == 'pico' ? 'pico_roto.png' : (tool == 'linterna' ? 'linterna_rota.png' : 'carrito_roto.png');
+        deck.add({'id': 'brk_${tool}_${random.nextInt(100)}', 'name': 'Romper $tool', 'type': 'action', 'actionType': 'break_tool', 'targetTool': tool, 'imageUrl': 'assets/images_cards/$toolImg'});
+        
+        String fixImg = tool == 'pico' ? 'reparar_pico.png' : (tool == 'linterna' ? 'reparar_linterna.png' : 'reparar_carrito.png');
+        deck.add({'id': 'fix_${tool}_${random.nextInt(100)}', 'name': 'Reparar $tool', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': [tool], 'imageUrl': 'assets/images_cards/$fixImg'});
     }
-    deck.add({'id': 'fix_pico_linterna', 'name': 'Reparar Pico o Linterna', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'linterna'], 'imageUrl': ''});
-    deck.add({'id': 'fix_pico_carrito', 'name': 'Reparar Pico o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'carrito'], 'imageUrl': ''});
-    deck.add({'id': 'fix_linterna_carrito', 'name': 'Reparar Linterna o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['linterna', 'carrito'], 'imageUrl': ''});
+    deck.add({'id': 'fix_pico_linterna', 'name': 'Reparar Pico o Linterna', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'linterna'], 'imageUrl': 'assets/images_cards/reparar_pico_o_linterna.png'});
+    deck.add({'id': 'fix_pico_carrito', 'name': 'Reparar Pico o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'carrito'], 'imageUrl': 'assets/images_cards/reparar_pico_o_carrito.png'});
+    deck.add({'id': 'fix_linterna_carrito', 'name': 'Reparar Linterna o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['linterna', 'carrito'], 'imageUrl': 'assets/images_cards/reparar_linterna_o_carrito.png'});
     deck.shuffle(random);
     return deck;
   }

@@ -505,6 +505,76 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     );
   }
 
+  void _showPlayerDetailDialog(Map<String, dynamic> pdata, String pid, List<String> broken) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.black,
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(color: AppColors.brightGold, width: 2),
+          borderRadius: BorderRadius.circular(20)
+        ),
+        title: Text(
+          pdata['name'].toString().toUpperCase(), 
+          textAlign: TextAlign.center, 
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.person, color: AppColors.primaryGold, size: 50),
+            const SizedBox(height: 10),
+            Text(
+              'CARTAS EN MANO: ${pdata['hand']?.length ?? 0}',
+              style: const TextStyle(color: AppColors.cream, fontSize: 16),
+            ),
+            const Divider(color: Colors.white24, height: 30),
+            const Text(
+              'ESTADO DE HERRAMIENTAS:',
+              style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 15),
+            if (broken.isEmpty)
+              const Text('¡TODO BIEN! ✅', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold))
+            else
+              Wrap(
+                spacing: 20,
+                runSpacing: 20,
+                alignment: WrapAlignment.center,
+                children: broken.map((t) {
+                  String asset = 'assets/images_cards/castigo_pico.png';
+                  String label = 'PICO ROTO';
+                  if (t == 'linterna' || t == 'lantern') {
+                    asset = 'assets/images_cards/castigo_linterna.png';
+                    label = 'LINTERNA ROTA';
+                  }
+                  if (t == 'carrito' || t == 'cart') {
+                    asset = 'assets/images_cards/castigo_carrito.png';
+                    label = 'CARRITO ROTO';
+                  }
+                  return Column(
+                    children: [
+                      Image.asset(asset, width: 60, height: 60),
+                      const SizedBox(height: 4),
+                      Text(label, style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ],
+                  );
+                }).toList(),
+              ),
+          ],
+        ),
+        actions: [
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx), 
+              child: const Text('CERRAR', style: TextStyle(color: AppColors.brightGold, fontWeight: FontWeight.bold))
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
   void _showError(String message) {
     try { FlameAudio.play('error.mp3', volume: 0.5); } catch(e) {}
     
@@ -568,6 +638,21 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   int max(int a, int b) => a > b ? a : b;
 
+  bool _audioInitialized = false;
+
+  void _initializeAudio() {
+    if (_audioInitialized) return;
+    try {
+      // Intentamos inicializar el audio context en la primera interacción
+      FlameAudio.bgm.initialize();
+      _audioInitialized = true;
+      DebugLogger.log("Audio Context desbloqueado por interacción del usuario", category: "AUDIO");
+      // Reproducir un sonido silencioso o corto si es necesario
+    } catch (e) {
+      DebugLogger.log("Error inicializando audio: $e", category: "ERROR");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final gameId = ref.watch(activeGameIdProvider);
@@ -612,11 +697,14 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       }
     });
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-          children: [
+    return GestureDetector(
+      onTapDown: (_) => _initializeAudio(),
+      behavior: HitTestBehavior.translucent,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Stack(
+            children: [
             Positioned.fill(
               bottom: 250, // Subimos un poco el tablero para dejar espacio a la lista horizontal
               child: Padding(
@@ -802,32 +890,41 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                 ),
                                 boxShadow: pid == currentTurn ? [const BoxShadow(color: Colors.greenAccent, blurRadius: 4)] : null,
                               ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    pdata['name'] + (pid == firebaseService.currentUid ? ' (Tú)' : ''),
-                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                    textAlign: TextAlign.center,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Cartas: ($cardCount)',
-                                    style: const TextStyle(color: AppColors.cream, fontSize: 10),
-                                  ),
-                                  if (broken.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: broken.map((t) => Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 1),
-                                          child: Icon(_getIconForTool(t), size: 14, color: Colors.redAccent),
-                                        )).toList(),
-                                      ),
+                              child: InkWell(
+                                onTap: () => _showPlayerDetailDialog(pdata, pid, broken),
+                                borderRadius: BorderRadius.circular(10),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      pdata['name'] + (pid == firebaseService.currentUid ? ' (Tú)' : ''),
+                                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                      textAlign: TextAlign.center,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                ],
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '(${pdata['hand']?.length ?? 0} cartas)',
+                                      style: const TextStyle(color: AppColors.cream, fontSize: 9),
+                                    ),
+                                    if (broken.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: broken.map((t) {
+                                            String asset = 'assets/images_cards/castigo_pico.png';
+                                            if (t == 'linterna' || t == 'lantern') asset = 'assets/images_cards/castigo_linterna.png';
+                                            if (t == 'carrito' || t == 'cart') asset = 'assets/images_cards/castigo_carrito.png';
+                                            return Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 1),
+                                              child: Image.asset(asset, width: 14, height: 14),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
                           );
@@ -897,7 +994,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           ],
         ),
       ),
-    );
+    ),
+   );
   }
 
   IconData _getIconForTool(String tool) {

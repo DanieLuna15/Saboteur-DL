@@ -67,23 +67,42 @@ class PathCardPainter extends CustomPainter {
 
   void _drawPath(Canvas canvas, Size size, PathCard pathCard) {
     _pathPaint.strokeWidth = size.width * 0.18;
+    // Ahora usamos el mismo naranja para todas las cartas de camino
+    _pathPaint.color = Colors.orange[400]!;
+    
     final center = Offset(size.width / 2, size.height / 2);
+    final gap = size.width * 0.15; // Distancia para el "corte" central
 
+    // Dibujamos las líneas de conexión
     if (pathCard.connections[PathDirection.top] == true) {
-      canvas.drawLine(center, Offset(size.width / 2, 0), _pathPaint);
+      final start = pathCard.hasCenter ? center : Offset(center.dx, center.dy - gap);
+      canvas.drawLine(start, Offset(size.width / 2, 0), _pathPaint);
     }
     if (pathCard.connections[PathDirection.bottom] == true) {
-      canvas.drawLine(center, Offset(size.width / 2, size.height), _pathPaint);
+      final start = pathCard.hasCenter ? center : Offset(center.dx, center.dy + gap);
+      canvas.drawLine(start, Offset(size.width / 2, size.height), _pathPaint);
     }
     if (pathCard.connections[PathDirection.left] == true) {
-      canvas.drawLine(center, Offset(0, size.height / 2), _pathPaint);
+      final start = pathCard.hasCenter ? center : Offset(center.dx - gap, center.dy);
+      canvas.drawLine(start, Offset(0, size.height / 2), _pathPaint);
     }
     if (pathCard.connections[PathDirection.right] == true) {
-      canvas.drawLine(center, Offset(size.width, size.height / 2), _pathPaint);
+      final start = pathCard.hasCenter ? center : Offset(center.dx + gap, center.dy);
+      canvas.drawLine(start, Offset(size.width, size.height / 2), _pathPaint);
     }
 
     if (pathCard.hasCenter) {
+      // Centro normal: círculo naranja
       canvas.drawCircle(center, size.width * 0.12, Paint()..color = Colors.orange[400]!);
+    } else {
+      // Centro bloqueado: un pequeño ícono de "muro" o piedra
+      final blockPaint = Paint()..color = Colors.grey[700]!..style = PaintingStyle.fill;
+      canvas.drawRect(Rect.fromCenter(center: center, width: size.width * 0.15, height: size.width * 0.15), blockPaint);
+      
+      // Detalle del muro (cruz pequeña)
+      final detailPaint = Paint()..color = Colors.white24..strokeWidth = 1..style = PaintingStyle.stroke;
+      canvas.drawLine(Offset(center.dx - 5, center.dy - 5), Offset(center.dx + 5, center.dy + 5), detailPaint);
+      canvas.drawLine(Offset(center.dx + 5, center.dy - 5), Offset(center.dx - 5, center.dy + 5), detailPaint);
     }
   }
 
