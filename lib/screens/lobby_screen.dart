@@ -9,6 +9,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'waiting_room_screen.dart';
 import 'game_screen.dart';
+import 'package:flame_audio/flame_audio.dart';
 import '../utils/debug_logger.dart';
 
 class LobbyScreen extends ConsumerStatefulWidget {
@@ -20,6 +21,18 @@ class LobbyScreen extends ConsumerStatefulWidget {
 
 class _LobbyScreenState extends ConsumerState<LobbyScreen> {
   bool _isNavigating = false;
+
+  void _unlockAudio() {
+    try {
+      // Un gesto del usuario es necesario para desbloquear el audio en la web
+      FlameAudio.bgm.initialize();
+      // Un sonido mudo o invisible para "despertar" el AudioContext
+      FlameAudio.play('mapa.mp3', volume: 0.001); 
+      DebugLogger.log("Lobby: Audio Context desbloqueado por interacción.", category: "AUDIO");
+    } catch (e) {
+      DebugLogger.log("Error desbloqueando audio: $e", category: "ERROR");
+    }
+  }
 
   void _showEditNameDialog(BuildContext context, WidgetRef ref, User user) {
     final currentNickname = ref.read(userNicknameProvider) ?? user.displayName ?? "";
@@ -171,6 +184,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                               ),
                               onPressed: () {
+                                _unlockAudio();
                                 DebugLogger.log("Lobby: Reincorporándose a la partida ${ref.read(activeGameIdProvider)}", category: "NAV");
                                 Navigator.push(
                                   context, 
@@ -199,6 +213,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                       onPressed: _isNavigating ? null : () async {
+                        _unlockAudio();
                         setState(() => _isNavigating = true);
                         try {
                           final gameId = await firebaseService.createGame(
@@ -311,6 +326,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
                               ),
                               trailing: ElevatedButton(
                                 onPressed: _isNavigating ? null : () async {
+                                  _unlockAudio();
                                   setState(() => _isNavigating = true);
                                   try {
                                     final uniqueName = firebaseService.getUniqueName(

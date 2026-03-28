@@ -576,7 +576,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   }
 
   void _showError(String message) {
-    try { FlameAudio.play('error.mp3', volume: 0.5); } catch(e) {}
+    try { FlameAudio.play('error.mp3', volume: 0.8); } catch(e) {}
     
     final overlay = Overlay.of(context);
     late OverlayEntry entry;
@@ -771,6 +771,8 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                           final resultData = await firebaseService.revealGoalSecretly(gameId, firebaseService.currentUid, card.toMap(), goalIdx);
                                           setState(() => _hasPlayedOrDiscardedThisTurn = true);
                                           if (mounted) _showMapRevealDialog(goalIdx, resultData);
+                                       } else {
+                                          _showError("El mapa solo se puede usar sobre las cartas de meta (en el borde derecho)");
                                        }
                                        return;
                                     }
@@ -780,9 +782,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                                          _showError("No puedes construir caminos mientras tus herramientas estén rotas"); 
                                          return; 
                                        } 
+                                      // No se puede poner caminos en celdas reservadas (si se desea validar localmente)
                                       try { FlameAudio.play('uso_carta_user.mp3', volume: 0.8); } catch(e){}
                                       _gameInstance?.addOptimisticCard(card, gx, gy);
                                     } else if (card is ActionCard && card.actionType == 'rockfall') {
+                                      // VALIDACIÓN LOCAL: No dinamitar el inicio (0,3) ni metas (8,1 / 3 / 5)
+                                      bool isProtected = (gx == 0 && gy == 3) || (gx == 8 && (gy == 1 || gy == 3 || gy == 5));
+                                      if (isProtected) {
+                                         _showError("No puedes usar dinamita en esta celda protegida");
+                                         return;
+                                      }
                                       try { FlameAudio.play('dinamita.mp3', volume: 0.8); } catch(e){}
                                       _gameInstance?.removeOptimisticCard(gx, gy);
                                     } else {
@@ -868,12 +877,14 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             onAcceptWithDetails: (details) async {
                               try {
                                 final card = details.data;
+                                // Local validation if possible
+                                await firebaseService.playActionOnPlayer(gameId, firebaseService.currentUid, pid, details.data.toMap());
+                                
                                 if (card is ActionCard && card.actionType == 'break_tool') {
                                    try { FlameAudio.play('romper_herramienta.mp3', volume: 0.8); } catch(e){}
                                 } else {
                                    try { FlameAudio.play('reparar_herramienta.mp3', volume: 0.8); } catch(e){}
                                 }
-                                await firebaseService.playActionOnPlayer(gameId, firebaseService.currentUid, pid, details.data.toMap());
                                 setState(() => _hasPlayedOrDiscardedThisTurn = true);
                               } catch (e) { _showError(e.toString()); }
                             },

@@ -98,8 +98,8 @@ class _PlayerHandWidgetState extends State<PlayerHandWidget> {
                   feedback: Material(
                     color: Colors.transparent,
                     child: SizedBox(
-                      width: 85,
-                      height: 126, // Proporción 310x460 (85 * 460 / 310)
+                      width: 78,
+                      height: 110, // Un equilibrio entre rectangular y no tan "fino"
                       child: CardItem(card: card, isDragging: true, isHighlight: true),
                     ),
                   ),
@@ -133,8 +133,8 @@ class CardItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 85,
-      height: 126, // Proporción 310x460
+      width: 78,
+      height: 125, // Formato rectangular equilibrado
       margin: const EdgeInsets.symmetric(horizontal: 4),
       child: Stack(
         children: [
