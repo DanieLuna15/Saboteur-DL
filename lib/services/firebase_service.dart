@@ -163,61 +163,79 @@ class FirebaseService {
       pathCards.add({...cardData, 'x': x, 'y': y, 'playedBy': uid});
       
       final actorName = players[uid]['name'];
-      await _firestore.collection('games').doc(gameId).update({
+      final updates = <String, dynamic>{
         'recentAction': {
           'type': 'path_placed',
           'actorName': actorName,
           'actorId': uid,
           'timestamp': FieldValue.serverTimestamp(),
-        }
-      });
+        },
+        'pathCards': pathCards,
+      };
       
-      // CHEQUEO DE VICTORIA / REVELAR METAS
-      final revealedGoals = List<int>.from(data['revealedGoals'] ?? []);
-      final goldIdx = data['goldGoalIndex'] as int;
-      bool winnersFound = false;
+      bool goldReachedAndConnected = false;
 
-      // BFS para ver qué se conecta ahora
-      final connectedCoords = _getConnectedPath(pathCards);
+      // 2. Verificar Metas Alcanzadas (ESCANEO COMPLETO)
+      final reachedGoals = _checkAllReachedGoals(pathCards);
       
-      // Metas están en (8, 1), (8, 3), (8, 5)
-      final goals = [(8, 1), (8, 3), (8, 5)];
-      for (int i = 0; i < 3; i++) {
-        final g = goals[i];
-        if (connectedCoords.contains(g)) {
-          if (_connectsToGoal(g.$1, g.$2, pathCards)) {
-             if (!revealedGoals.contains(i)) {
-                revealedGoals.add(i);
-                final isGold = (i == goldIdx);
-                if (isGold) winnersFound = true;
-                
-                // Notificar revelación de meta
-                await _firestore.collection('games').doc(gameId).update({
-                  'recentAction': {
-                    'type': 'goal_revealed',
-                    'goalIndex': i,
-                    'isGold': isGold,
-                    'actorName': players[uid]['name'],
-                    'timestamp': FieldValue.serverTimestamp(),
-                  }
-                });
+      if (reachedGoals.isNotEmpty) {
+        final List<int> currentRevealed = List<int>.from(data['revealedGoals'] ?? []);
+        final goldIdx = data['goldGoalIndex'] as int;
+
+        for (int goalIdx in reachedGoals) {
+          if (!currentRevealed.contains(goalIdx)) {
+            currentRevealed.add(goalIdx);
+            final isGold = (goalIdx == goldIdx);
+            
+            // Notificar revelación
+            await _firestore.collection('games').doc(gameId).update({
+              'recentAction': {
+                'type': 'goal_revealed',
+                'goalIndex': goalIdx,
+                'isGold': isGold,
+                'actorName': actorName,
+                'timestamp': FieldValue.serverTimestamp(),
+              }
+            });
+
+            // Si es oro, verificar si hay conexión real al centro para ganar
+            if (goalIdx == goldIdx) {
+              final goalX = 8;
+              final goalY = (goalIdx == 0) ? 1 : (goalIdx == 1 ? 3 : 5);
+              if (_connectsToGoal(goalX, goalY, pathCards)) {
+                goldReachedAndConnected = true;
+              }
+            }
+          } else if (goalIdx == goldIdx) {
+             // Si ya estaba revelada, verificar si este nuevo movimiento completó el camino al oro
+             final goalX = 8;
+             final goalY = (goalIdx == 1 ? 3 : (goalIdx == 0 ? 1 : 5));
+             if (_connectsToGoal(goalX, goalY, pathCards)) {
+               goldReachedAndConnected = true;
              }
           }
         }
+
+        if (currentRevealed.length > (data['revealedGoals'] as List).length) {
+          updates['revealedGoals'] = currentRevealed;
+        }
+        
+        if (goldReachedAndConnected) {
+          // No actualizamos status aquí, dejamos que _distributeGold lo haga
+          // para evitar que el diálogo se muestre antes de repartir el oro
+          goldReachedAndConnected = true;
+        }
       }
 
-      if (winnersFound) {
-        data['pathCards'] = pathCards;
-        data['revealedGoals'] = revealedGoals;
-        data['players'] = players;
+      await _firestore.collection('games').doc(gameId).update(updates);
+      
+      // Si se llegó al oro, repartimos y finalizamos
+      // O si se acabaron las cartas (esto se maneja en endTurnAndDraw)
+      if (goldReachedAndConnected) {
+        data['revealedGoals'] = updates['revealedGoals'] ?? data['revealedGoals'];
         await _distributeGold(gameId, data, 'miner', uid);
         return;
       }
-
-      await _firestore.collection('games').doc(gameId).update({
-        'revealedGoals': revealedGoals,
-        'pathCards': pathCards,
-      });
     }
 
     players[uid]['hand'].removeWhere((c) => c['id'] == cardData['id']);
@@ -321,32 +339,40 @@ class FirebaseService {
 
   Set<(int, int)> _getConnectedPath(List<Map<String, dynamic>> pathCards) {
     final Set<(int, int)> connected = {};
-    final List<(int, int)> queue = [(0, 3)]; // Inicio
+    final List<(int, int)> queue = [(0, 3)]; // Start card (0, 3)
     
     final Map<(int, int), Map<String, dynamic>> grid = {};
     for (var c in pathCards) {
-      grid[(c['x'] as int, c['y'] as int)] = c;
+      grid[((c['x'] as num).toInt(), (c['y'] as num).toInt())] = c;
     }
-    // Start card fix:
-    grid[(0, 3)] = {'connections': {'top': true, 'bottom': true, 'left': true, 'right': true}};
+    // Añadimos la carta de inicio manualmente si no está
+    if (!grid.containsKey((0, 3))) {
+       grid[(0, 3)] = {'connections': {'top': true, 'bottom': true, 'left': true, 'right': true}, 'hasCenter': true};
+    }
 
     while (queue.isNotEmpty) {
       final curr = queue.removeAt(0);
       if (connected.contains(curr)) continue;
       connected.add(curr);
 
-      final currData = grid[curr];
-      if (currData == null) continue;
-      if (currData['hasCenter'] == false) continue; // Si es un callejón sin salida (Bloqueo)
+      final cardData = grid[curr];
+      if (cardData == null) continue;
 
-      final isRotated = currData['isRotated'] as bool? ?? false;
-      final Map connsRaw = currData['connections'] as Map;
+      // Si la carta es una vía muerta, el camino llega pero NO SALE
+      final bool hasCenter = cardData['hasCenter'] == true;
+      if (!hasCenter) continue;
+
+      final isRotated = cardData['isRotated'] as bool? ?? false;
+      final Map connsRaw = cardData['connections'] as Map;
+      
+      // Obtener conexiones reales (aplicando rotación si procede)
       final conns = !isRotated ? connsRaw : {
         'top': connsRaw['bottom'] ?? false,
         'bottom': connsRaw['top'] ?? false,
         'left': connsRaw['right'] ?? false,
         'right': connsRaw['left'] ?? false,
       };
+
       final neighbors = [
         (curr.$1, curr.$2 - 1, 'top', 'bottom'),
         (curr.$1, curr.$2 + 1, 'bottom', 'top'),
@@ -357,23 +383,26 @@ class FirebaseService {
       for (var n in neighbors) {
         if (conns[n.$3] == true) {
           final nCoord = (n.$1, n.$2);
-          final nData = grid[nCoord];
-          if (nData != null) {
-            final isNRotated = nData['isRotated'] as bool? ?? false;
+          
+          if (grid.containsKey(nCoord)) {
+            final nData = grid[nCoord]!;
+            final bool nIsRotated = nData['isRotated'] as bool? ?? false;
             final Map nConnsRaw = nData['connections'] as Map;
-            final nConns = !isNRotated ? nConnsRaw : {
+            final nConns = !nIsRotated ? nConnsRaw : {
               'top': nConnsRaw['bottom'] ?? false,
               'bottom': nConnsRaw['top'] ?? false,
               'left': nConnsRaw['right'] ?? false,
               'right': nConnsRaw['left'] ?? false,
             };
+            
             if (nConns[n.$4] == true) {
               queue.add(nCoord);
             }
           }
-          // Special case for goals (meta)
+          
+          // Especial: Marcar metas como alcanzadas visualmente (para revelarlas)
           if (nCoord.$1 == 8 && (nCoord.$2 == 1 || nCoord.$2 == 3 || nCoord.$2 == 5)) {
-             connected.add(nCoord);
+            connected.add(nCoord);
           }
         }
       }
@@ -381,29 +410,42 @@ class FirebaseService {
     return connected;
   }
 
-  bool _connectsToGoal(int gx, int gy, List<Map<String, dynamic>> pathCards) {
-    // Un simple chequeo de si algún vecino envía una conexión a la meta
-    final neighbors = [
+  bool _connectsToGoal(int gx, int gy, List<dynamic> pathCards) {
+    final Map<(int, int), Map<String, dynamic>> grid = {
+      for (var c in pathCards) ((c['x'] as num).toInt(), (c['y'] as num).toInt()): Map<String, dynamic>.from(c)
+    };
+
+    final connectedCoords = _getConnectedPath(List<Map<String, dynamic>>.from(pathCards));
+
+    // Para GANAR, al menos un vecino debe estar conectado al inicio
+    // Y ese vecino debe tener un túnel fluido (hasCenter: true) hacia la meta
+    final neighborsOfGoal = [
       (gx, gy - 1, 'bottom'),
       (gx, gy + 1, 'top'),
       (gx - 1, gy, 'right'),
       (gx + 1, gy, 'left'),
     ];
 
-    for (var n in neighbors) {
-      final nData = pathCards.firstWhere((c) => c['x'] == n.$1 && c['y'] == n.$2, orElse: () => {});
-      if (nData.isNotEmpty) {
-        final isNRotated = nData['isRotated'] as bool? ?? false;
-        final Map nConnsRaw = nData['connections'] as Map;
-        final nConns = !isNRotated ? nConnsRaw : {
-          'top': nConnsRaw['bottom'] ?? false,
-          'bottom': nConnsRaw['top'] ?? false,
-          'left': nConnsRaw['right'] ?? false,
-          'right': nConnsRaw['left'] ?? false,
-        };
-        if (nConns[n.$3] == true) return true;
+    for (var n in neighborsOfGoal) {
+      final neighborCoord = (n.$1, n.$2);
+      
+      if (neighborCoord == (0, 3)) return true; // Caso raro pero posible
+
+      if (connectedCoords.contains(neighborCoord)) {
+        final nData = grid[neighborCoord];
+        if (nData != null && nData['hasCenter'] == true) {
+           final isRotated = nData['isRotated'] as bool? ?? false;
+           final Map connsRaw = nData['connections'] as Map;
+           final conns = !isRotated ? connsRaw : {
+             'top': connsRaw['bottom'] ?? false,
+             'bottom': connsRaw['top'] ?? false,
+             'left': connsRaw['right'] ?? false,
+             'right': connsRaw['left'] ?? false,
+           };
+           
+           if (conns[n.$3] == true) return true;
+        }
       }
-      if (n.$1 == 0 && n.$2 == 3) return true; // Start card
     }
     return false;
   }
@@ -697,12 +739,18 @@ class FirebaseService {
   }
 
   Future<void> _distributeGold(String gameId, Map<String, dynamic> gameData, String winnerRole, String lastPlayerId) async {
-    final players = Map<String, dynamic>.from(gameData['players']);
-    final int roundNumber = gameData['roundNumber'] ?? 1;
+    // 1. Obtener la data más reciente para no sobreescribir con datos viejos
+    final doc = await _firestore.collection('games').doc(gameId).get();
+    if (!doc.exists) return;
+    final data = doc.data()!;
+    final players = Map<String, dynamic>.from(data['players']);
+    final int roundNumber = data['roundNumber'] ?? 1;
     final int numPlayers = players.length;
+    final Map<String, dynamic> updates = {};
 
     if (winnerRole == 'miner') {
-      int numCards = numPlayers == 10 ? 9 : numPlayers;
+      // Regla: Se roban tantas pepitas como jugadores (max 9)
+      int numCards = numPlayers > 10 ? 9 : numPlayers;
       List<int> drawnNuggets = [];
       final rand = Random();
       for (int i = 0; i < numCards; i++) {
@@ -717,6 +765,7 @@ class FirebaseService {
       int startIdx = playerIds.indexOf(lastPlayerId);
       if (startIdx == -1) startIdx = 0;
 
+      // Lista de mineros en orden de turno desde el que ganó
       List<String> minerIds = [];
       for (int i = 0; i < numPlayers; i++) {
         String pid = playerIds[(startIdx + i) % numPlayers];
@@ -728,11 +777,14 @@ class FirebaseService {
       if (minerIds.isNotEmpty) {
         int mIdx = 0;
         for (int nugget in drawnNuggets) {
-           players[minerIds[mIdx]]['gold'] = (players[minerIds[mIdx]]['gold'] ?? 0) + nugget;
+           final pid = minerIds[mIdx];
+           final currentGold = players[pid]['gold'] ?? 0;
+           updates['players.$pid.gold'] = currentGold + nugget;
            mIdx = (mIdx + 1) % minerIds.length;
         }
       }
     } else {
+      // Saboteadores ganan pepitas fijas
       int numSaboteurs = players.values.where((p) => p['role'] == 'saboteur').length;
       int nuggetsPerSaboteur = 0;
       if (numSaboteurs == 1) nuggetsPerSaboteur = 4;
@@ -741,21 +793,20 @@ class FirebaseService {
 
       for (var pid in players.keys) {
         if (players[pid]['role'] == 'saboteur') {
-          players[pid]['gold'] = (players[pid]['gold'] ?? 0) + nuggetsPerSaboteur;
+          final currentGold = players[pid]['gold'] ?? 0;
+          updates['players.$pid.gold'] = currentGold + nuggetsPerSaboteur;
         }
       }
     }
 
-    await _firestore.collection('games').doc(gameId).update({
-      'players': players,
-      'status': roundNumber >= (gameData['settings']?['numRounds'] ?? 3) ? 'finished' : 'round_finished',
-      'winnerRole': winnerRole,
-      'roundNumber': roundNumber,
-      'lastPlayedUid': lastPlayerId,
-      'pathCards': gameData['pathCards'] ?? [],
-      'revealedGoals': gameData['revealedGoals'] ?? [],
-      'deck': gameData['deck'] ?? [],
-    });
+    final int maxRounds = data['settings']?['numRounds'] ?? 3;
+    final bool isGameOver = roundNumber >= maxRounds;
+    
+    updates['status'] = isGameOver ? 'finished' : 'round_finished';
+    updates['winnerRole'] = winnerRole;
+    updates['lastPlayedUid'] = lastPlayerId;
+
+    await _firestore.collection('games').doc(gameId).update(updates);
   }
 
   Future<void> startNextRound(String gameId) async {
@@ -824,5 +875,56 @@ class FirebaseService {
       'revealedGoals': [],
       'roundNumber': roundNumber + 1,
     });
+  }
+
+  /// Escaneo completo de metas alcanzables desde el inicio
+  List<int> _checkAllReachedGoals(List<dynamic> pathCards) {
+    final connectedCoords = _getConnectedPath(List<Map<String, dynamic>>.from(pathCards));
+    final reachedGoals = <int>{};
+    
+    // Las coordenadas de las metas son fijas en x=8, y=1,3,5
+    final goalCoords = {
+      (8, 1): 0,
+      (8, 3): 1,
+      (8, 5): 2,
+    };
+
+    // Creamos un mapa de búsqueda rápida por coordenadas
+    final Map<(int, int), dynamic> grid = {
+      for (var c in pathCards) ((c['x'] as num).toInt(), (c['y'] as num).toInt()): c
+    };
+
+    for (var coord in connectedCoords) {
+      final cardData = grid[coord];
+      if (cardData == null) continue;
+      
+      final isRotated = cardData['isRotated'] as bool? ?? false;
+      final Map connsRaw = cardData['connections'] as Map;
+      final conns = !isRotated ? connsRaw : {
+        'top': connsRaw['bottom'] ?? false,
+        'bottom': connsRaw['top'] ?? false,
+        'left': connsRaw['right'] ?? false,
+        'right': connsRaw['left'] ?? false,
+      };
+
+      // Revisar vecinos de cada carta conectada al inicio
+      final neighbors = [
+        (coord.$1, coord.$2 - 1, 'top'),
+        (coord.$1, coord.$2 + 1, 'bottom'),
+        (coord.$1 - 1, coord.$2, 'left'),
+        (coord.$1 + 1, coord.$2, 'right'),
+      ];
+
+      for (var n in neighbors) {
+        if (conns[n.$3] == true) {
+          final targetCoord = (n.$1, n.$2);
+          if (goalCoords.containsKey(targetCoord)) {
+            reachedGoals.add(goalCoords[targetCoord]!);
+          }
+        }
+      }
+    }
+
+    return reachedGoals.toList();
   }
 }

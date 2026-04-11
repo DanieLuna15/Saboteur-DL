@@ -468,12 +468,17 @@ class _GameScreenState extends ConsumerState<GameScreen> {
               const Divider(color: Colors.white24),
               ...sortedPlayers.map((p) {
                 bool isMe = p.key == myUid;
+                String role = p.value['role'] ?? '';
+                String roleTag = role == 'miner' ? '(M)' : (role == 'saboteur' ? '(S)' : '');
+                
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4.0),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(child: Text(p.value['name'] + (isMe ? ' (Tú)' : ''), style: TextStyle(color: isMe ? Colors.amber : Colors.white70, fontWeight: isMe ? FontWeight.bold : FontWeight.normal), overflow: TextOverflow.ellipsis)),
+                      Expanded(child: Text('${p.value['name']} $roleTag' + (isMe ? ' (Tú)' : ''), 
+                        style: TextStyle(color: isMe ? Colors.amber : Colors.white70, fontWeight: isMe ? FontWeight.bold : FontWeight.normal), 
+                        overflow: TextOverflow.ellipsis)),
                       Row(children: [Text('${p.value['gold'] ?? 0}', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 16)), const SizedBox(width: 4), const Icon(Icons.stars, color: Colors.amber, size: 16)])
                     ],
                   ),
