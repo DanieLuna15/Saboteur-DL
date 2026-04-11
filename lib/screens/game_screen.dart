@@ -34,6 +34,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   int? _hoverY;
   bool _isFirstActionIgnored = false;
   bool _initialTurnHandled = false;
+  bool _isRoleHidden = false; // Nuevo: Estado para ocultar/mostrar rol
 
 
 
@@ -1050,10 +1051,52 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   Widget _buildRoleChip(String role) {
     final isSabo = role == 'saboteur';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(15), border: Border.all(color: isSabo ? Colors.redAccent : Colors.cyanAccent)),
-      child: Row(children: [Icon(isSabo ? Icons.dangerous : Icons.person, size: 12, color: isSabo ? Colors.redAccent : Colors.cyanAccent), const SizedBox(width: 4), Text(isSabo ? 'SABOTEADOR' : 'MINERO', style: TextStyle(color: isSabo ? Colors.redAccent : Colors.cyanAccent, fontSize: 10, fontWeight: FontWeight.bold))]),
+    
+    return GestureDetector(
+      onTap: () => setState(() => _isRoleHidden = !_isRoleHidden),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.black87, 
+            borderRadius: BorderRadius.circular(15), 
+            border: Border.all(
+              color: _isRoleHidden 
+                ? Colors.white54 
+                : (isSabo ? Colors.redAccent : Colors.cyanAccent),
+              width: 1.5
+            ),
+            boxShadow: _isRoleHidden ? null : [
+              BoxShadow(
+                color: (isSabo ? Colors.redAccent : Colors.cyanAccent).withOpacity(0.3),
+                blurRadius: 4,
+                spreadRadius: 1
+              )
+            ]
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _isRoleHidden ? Icons.visibility_off : (isSabo ? Icons.dangerous : Icons.person), 
+                size: 14, 
+                color: _isRoleHidden ? Colors.white54 : (isSabo ? Colors.redAccent : Colors.cyanAccent)
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _isRoleHidden ? 'OCULTO' : (isSabo ? 'SABOTEADOR' : 'MINERO'), 
+                style: TextStyle(
+                  color: _isRoleHidden ? Colors.white54 : (isSabo ? Colors.redAccent : Colors.cyanAccent), 
+                  fontSize: 10, 
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5
+                )
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
