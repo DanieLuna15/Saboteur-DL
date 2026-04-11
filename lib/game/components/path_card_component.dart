@@ -30,7 +30,11 @@ class PathCardComponent extends PositionComponent with HasPaint implements Opaci
     this.isRevealed = false,
     required Vector2 position,
     required Vector2 size,
-  }) : super(position: position, size: size, anchor: Anchor.center);
+  }) : super(position: position, size: size, anchor: Anchor.center) {
+    if (card.isRotated) {
+      angle = 3.14159; // PI radianes = 180 grados
+    }
+  }
 
   @override
   Future<void> onLoad() async {

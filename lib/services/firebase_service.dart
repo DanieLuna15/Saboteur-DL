@@ -255,8 +255,16 @@ class FirebaseService {
 
       if (neighborData.isNotEmpty) {
         hasNeighbor = true;
-        final nConns = neighborData['connections'] as Map;
-        final myConns = card.connections;
+        final isNeighborRotated = neighborData['isRotated'] as bool? ?? false;
+        final Map nConnsRaw = neighborData['connections'] as Map;
+        final nConns = !isNeighborRotated ? nConnsRaw : {
+          'top': nConnsRaw['bottom'] ?? false,
+          'bottom': nConnsRaw['top'] ?? false,
+          'left': nConnsRaw['right'] ?? false,
+          'right': nConnsRaw['left'] ?? false,
+        };
+        
+        final myConns = card.getRotatedConnections();
         
         // El "corte" ocurre si uno tiene conexión y el otro no
         bool myHas = myConns[PathDirection.values.firstWhere((e) => e.name == myDir)] == true;
@@ -265,9 +273,6 @@ class FirebaseService {
         if (myHas != nHas) {
           throw Exception("Las conexiones no coinciden (corte en $myDir)");
         }
-        
-        // Además, si el vecino es parte del camino conectado al inicio,
-        // este nuevo movimiento hereda esa propiedad (reemplaza touchesConnected parcial)
       }
     }
 
@@ -282,7 +287,7 @@ class FirebaseService {
     
     // Si somos vecinos del start (0,3) y tenemos conexión hacia él, somos alcanzables.
     if ((x == 0 && (y == 2 || y == 4)) || (x == 1 && y == 3)) {
-       final myConns = card.connections;
+       final myConns = card.getRotatedConnections();
        if (x == 1 && y == 3 && myConns[PathDirection.left] == true) isReachable = true;
        if (x == 0 && y == 2 && myConns[PathDirection.bottom] == true) isReachable = true;
        if (x == 0 && y == 4 && myConns[PathDirection.top] == true) isReachable = true;
@@ -294,7 +299,14 @@ class FirebaseService {
             // Verificar que hay conexión real del vecino hacia nosotros
             final nData = pathCards.firstWhere((c) => c['x'] == n.$1 && c['y'] == n.$2, orElse: () => {});
             if (nData.isNotEmpty) {
-               final nConns = nData['connections'] as Map;
+               final isNRotated = nData['isRotated'] as bool? ?? false;
+               final Map nConnsRaw = nData['connections'] as Map;
+               final nConns = !isNRotated ? nConnsRaw : {
+                 'top': nConnsRaw['bottom'] ?? false,
+                 'bottom': nConnsRaw['top'] ?? false,
+                 'left': nConnsRaw['right'] ?? false,
+                 'right': nConnsRaw['left'] ?? false,
+               };
                if (nConns[n.$4] == true) {
                  isReachable = true;
                  break;
@@ -327,8 +339,14 @@ class FirebaseService {
       if (currData == null) continue;
       if (currData['hasCenter'] == false) continue; // Si es un callejón sin salida (Bloqueo)
 
-      final conns = currData['connections'] as Map;
-      
+      final isRotated = currData['isRotated'] as bool? ?? false;
+      final Map connsRaw = currData['connections'] as Map;
+      final conns = !isRotated ? connsRaw : {
+        'top': connsRaw['bottom'] ?? false,
+        'bottom': connsRaw['top'] ?? false,
+        'left': connsRaw['right'] ?? false,
+        'right': connsRaw['left'] ?? false,
+      };
       final neighbors = [
         (curr.$1, curr.$2 - 1, 'top', 'bottom'),
         (curr.$1, curr.$2 + 1, 'bottom', 'top'),
@@ -340,8 +358,18 @@ class FirebaseService {
         if (conns[n.$3] == true) {
           final nCoord = (n.$1, n.$2);
           final nData = grid[nCoord];
-          if (nData != null && (nData['connections'] as Map)[n.$4] == true) {
-            queue.add(nCoord);
+          if (nData != null) {
+            final isNRotated = nData['isRotated'] as bool? ?? false;
+            final Map nConnsRaw = nData['connections'] as Map;
+            final nConns = !isNRotated ? nConnsRaw : {
+              'top': nConnsRaw['bottom'] ?? false,
+              'bottom': nConnsRaw['top'] ?? false,
+              'left': nConnsRaw['right'] ?? false,
+              'right': nConnsRaw['left'] ?? false,
+            };
+            if (nConns[n.$4] == true) {
+              queue.add(nCoord);
+            }
           }
           // Special case for goals (meta)
           if (nCoord.$1 == 8 && (nCoord.$2 == 1 || nCoord.$2 == 3 || nCoord.$2 == 5)) {
@@ -365,7 +393,15 @@ class FirebaseService {
     for (var n in neighbors) {
       final nData = pathCards.firstWhere((c) => c['x'] == n.$1 && c['y'] == n.$2, orElse: () => {});
       if (nData.isNotEmpty) {
-        if ((nData['connections'] as Map)[n.$3] == true) return true;
+        final isNRotated = nData['isRotated'] as bool? ?? false;
+        final Map nConnsRaw = nData['connections'] as Map;
+        final nConns = !isNRotated ? nConnsRaw : {
+          'top': nConnsRaw['bottom'] ?? false,
+          'bottom': nConnsRaw['top'] ?? false,
+          'left': nConnsRaw['right'] ?? false,
+          'right': nConnsRaw['left'] ?? false,
+        };
+        if (nConns[n.$3] == true) return true;
       }
       if (n.$1 == 0 && n.$2 == 3) return true; // Start card
     }

@@ -7,12 +7,14 @@ class CardModel {
   final String name;
   final CardType type;
   final String imageUrl;
+  final bool isRotated; // Nueva propiedad
 
   CardModel({
     required this.id,
     required this.name,
     required this.type,
     required this.imageUrl,
+    this.isRotated = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -21,6 +23,7 @@ class CardModel {
       'name': name,
       'type': type.name,
       'imageUrl': imageUrl,
+      'isRotated': isRotated,
     };
   }
 
@@ -36,6 +39,17 @@ class CardModel {
       name: map['name'] as String,
       type: CardType.values.firstWhere((e) => e.name == typeStr, orElse: () => CardType.path),
       imageUrl: map['imageUrl'] as String,
+      isRotated: map['isRotated'] as bool? ?? false,
+    );
+  }
+
+  CardModel copyWith({bool? isRotated}) {
+    return CardModel(
+      id: id,
+      name: name,
+      type: type,
+      imageUrl: imageUrl,
+      isRotated: isRotated ?? this.isRotated,
     );
   }
 }
@@ -50,6 +64,7 @@ class PathCard extends CardModel {
     required super.imageUrl,
     required this.connections,
     this.hasCenter = true,
+    super.isRotated,
   }) : super(type: CardType.path);
 
   @override
@@ -77,7 +92,31 @@ class PathCard extends CardModel {
       imageUrl: map['imageUrl'] as String,
       connections: connections,
       hasCenter: map['hasCenter'] as bool? ?? true,
+      isRotated: map['isRotated'] as bool? ?? false,
     );
+  }
+
+  @override
+  PathCard copyWith({bool? isRotated}) {
+    return PathCard(
+      id: id,
+      name: name,
+      imageUrl: imageUrl,
+      connections: connections,
+      hasCenter: hasCenter,
+      isRotated: isRotated ?? this.isRotated,
+    );
+  }
+
+  // Método auxiliar para obtener conexiones reales considerando rotación
+  Map<PathDirection, bool> getRotatedConnections() {
+    if (!isRotated) return connections;
+    return {
+      PathDirection.top: connections[PathDirection.bottom] ?? false,
+      PathDirection.bottom: connections[PathDirection.top] ?? false,
+      PathDirection.left: connections[PathDirection.right] ?? false,
+      PathDirection.right: connections[PathDirection.left] ?? false,
+    };
   }
 }
 
@@ -93,6 +132,7 @@ class ActionCard extends CardModel {
     required this.actionType,
     this.targetTool = 'none',
     this.fixTools = const [],
+    super.isRotated,
   }) : super(type: CardType.action);
 
   @override
@@ -112,6 +152,20 @@ class ActionCard extends CardModel {
       actionType: map['actionType'] as String,
       targetTool: map['targetTool'] as String? ?? 'none',
       fixTools: (map['fixTools'] as List?)?.cast<String>() ?? [],
+      isRotated: map['isRotated'] as bool? ?? false,
+    );
+  }
+
+  @override
+  ActionCard copyWith({bool? isRotated}) {
+    return ActionCard(
+      id: id,
+      name: name,
+      imageUrl: imageUrl,
+      actionType: actionType,
+      targetTool: targetTool,
+      fixTools: fixTools,
+      isRotated: isRotated ?? this.isRotated,
     );
   }
 }

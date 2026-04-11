@@ -21,11 +21,37 @@ class PlayerHandWidget extends StatefulWidget {
 
 class _PlayerHandWidgetState extends State<PlayerHandWidget> {
   late ScrollController _scrollController;
+  final Set<int> _rotatedIndices = {}; // Track which cards are rotated
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
+  }
+
+  @override
+  void didUpdateWidget(PlayerHandWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Reset rotations if hand changes (new round or turn)
+    if (widget.handData.length != oldWidget.handData.length) {
+       _rotatedIndices.clear();
+    }
+  }
+
+  void _toggleRotation(int index) {
+    if (!widget.isInteractive) return;
+    
+    // Solo permitir rotar si es una carta de camino
+    final baseCard = CardModel.fromMap(Map<String, dynamic>.from(widget.handData[index]));
+    if (baseCard.type != CardType.path) return;
+
+    setState(() {
+      if (_rotatedIndices.contains(index)) {
+        _rotatedIndices.remove(index);
+      } else {
+        _rotatedIndices.add(index);
+      }
+    });
   }
 
   @override
@@ -70,7 +96,7 @@ class _PlayerHandWidgetState extends State<PlayerHandWidget> {
               padding: const EdgeInsets.only(bottom: 8.0, top: 4.0),
               child: Center(
                 child: Text(
-                  widget.isMyTurn ? 'TU MANO (ARRASTRA UNA CARTA O DESLIZA AQUÍ)' : 'TU MANO',
+                  widget.isMyTurn ? 'TU MANO (>> ARRASTRA PARA VER MÁS >>)' : 'TU MANO',
                   style: TextStyle(
                     color: widget.isMyTurn ? Colors.greenAccent : Colors.white70,
                     fontSize: 10,
@@ -89,8 +115,11 @@ class _PlayerHandWidgetState extends State<PlayerHandWidget> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               itemCount: widget.handData.length,
               itemBuilder: (context, index) {
-                final card = CardModel.fromMap(Map<String, dynamic>.from(widget.handData[index]));
-                
+                final baseCard = CardModel.fromMap(Map<String, dynamic>.from(widget.handData[index]));
+                // Solo permitimos rotación si es de tipo path
+                final bool isRotated = _rotatedIndices.contains(index) && baseCard.type == CardType.path;
+                final card = baseCard.copyWith(isRotated: isRotated);
+
                 return Draggable<CardModel>(
                   data: card,
                   maxSimultaneousDrags: widget.isInteractive ? 1 : 0,
@@ -99,7 +128,7 @@ class _PlayerHandWidgetState extends State<PlayerHandWidget> {
                     color: Colors.transparent,
                     child: SizedBox(
                       width: 78,
-                      height: 110, // Un equilibrio entre rectangular y no tan "fino"
+                      height: 110,
                       child: CardItem(card: card, isDragging: true, isHighlight: true),
                     ),
                   ),
@@ -107,7 +136,11 @@ class _PlayerHandWidgetState extends State<PlayerHandWidget> {
                     opacity: 0.3,
                     child: CardItem(card: card),
                   ),
-                  child: CardItem(card: card, isHighlight: widget.isMyTurn),
+                  child: GestureDetector(
+                    onTap: () => _toggleRotation(index),
+                    behavior: HitTestBehavior.opaque,
+                    child: CardItem(card: card, isHighlight: widget.isMyTurn),
+                  ),
                 );
               },
             ),
@@ -134,33 +167,40 @@ class CardItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 78,
-      height: 125, // Formato rectangular equilibrado
+      height: 125,
       margin: const EdgeInsets.symmetric(horizontal: 4),
       child: Stack(
+        alignment: Alignment.center,
         children: [
-          // Fondo o dibujo base (Painter)
-          Positioned.fill(
-            child: CustomPaint(
-              painter: PathCardPainter(
-                card: card, 
-                isHighlight: isHighlight || isDragging,
-                isFaceDown: false,
-              ),
+          AnimatedRotation(
+            turns: card.isRotated ? 0.5 : 0, // 0.5 turns = 180 degrees
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOutBack,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: PathCardPainter(
+                      card: card, 
+                      isHighlight: isHighlight || isDragging,
+                      isFaceDown: false,
+                    ),
+                  ),
+                ),
+                if (card.imageUrl.isNotEmpty)
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.asset(
+                        card.imageUrl, 
+                        fit: BoxFit.fill,
+                        errorBuilder: (context, error, stackTrace) => const SizedBox(),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-          // Imagen si es carta de acción
-          if (card.imageUrl.isNotEmpty)
-            Positioned.fill(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  card.imageUrl, 
-                  fit: BoxFit.fill,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox(),
-                ),
-              ),
-            ),
-          // Efecto visual durante el arrastre (opcional)
           if (isDragging)
             Positioned.fill(
               child: Container(
@@ -170,6 +210,16 @@ class CardItem extends StatelessWidget {
                 ),
               ),
             ),
+          if (card.isRotated && !isDragging)
+             Positioned(
+               top: 4,
+               right: 4,
+               child: Container(
+                 padding: const EdgeInsets.all(2),
+                 decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                 child: const Icon(Icons.sync, size: 10, color: Colors.cyanAccent),
+               ),
+             ),
         ],
       ),
     );
