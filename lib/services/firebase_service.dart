@@ -61,6 +61,11 @@ class FirebaseService {
       'roundNumber': 1,
       'lastPlayedUid': '',
       'turnOrder': [],
+      'settings': {
+        'numRounds': 3,
+        'numSaboteurs': 1,
+        'deckSize': 70, // Standard size
+      },
     });
     return docRef.id;
   }
@@ -71,10 +76,15 @@ class FirebaseService {
 
     final random = Random();
     final data = doc.data() as Map<String, dynamic>;
+    final settings = data['settings'] as Map<String, dynamic>? ?? {
+      'numRounds': 3,
+      'numSaboteurs': 1,
+      'deckSize': 70,
+    };
     final players = Map<String, dynamic>.from(data['players']);
     final playerIds = players.keys.toList()..shuffle();
 
-    int numSaboteurs = playerIds.length == 2 ? 1 : (playerIds.length / 3).floor().clamp(1, 3);
+    int numSaboteurs = settings['numSaboteurs'] ?? 1;
 
     for (int i = 0; i < playerIds.length; i++) {
         players[playerIds[i]]['role'] = i < numSaboteurs ? 'saboteur' : 'miner';
@@ -96,7 +106,8 @@ class FirebaseService {
         }
     }
 
-    final deck = _generateDeck();
+    final deckSize = (settings['deckSize'] as num?)?.toInt() ?? 70;
+    final deck = _generateDeck(deckSize);
     for (var pid in playerIds) {
         players[pid]['hand'] = [for (int j = 0; j < 6; j++) if (deck.isNotEmpty) deck.removeLast()];
     }
@@ -541,6 +552,12 @@ class FirebaseService {
     });
   }
 
+  Future<void> updateGameSettings(String gameId, Map<String, dynamic> settings) async {
+    await _firestore.collection('games').doc(gameId).update({
+      'settings': settings
+    });
+  }
+
   String getUniqueName(Map<dynamic, dynamic> players, String targetName, String currentId) {
     List<String> existingNames = [];
     players.forEach((id, data) {
@@ -556,7 +573,7 @@ class FirebaseService {
     return newName;
   }
 
-  List<Map<String, dynamic>> _generateDeck() {
+  List<Map<String, dynamic>> _generateDeck(int targetSize) {
     final List<Map<String, dynamic>> deck = [];
     final random = Random();
     final goodPaths = [
@@ -611,6 +628,32 @@ class FirebaseService {
     deck.add({'id': 'fix_pico_carrito', 'name': 'Reparar Pico o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'carrito'], 'imageUrl': 'assets/images_cards/reparar_pico_o_carrito.png'});
     deck.add({'id': 'fix_linterna_carrito', 'name': 'Reparar Linterna o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['linterna', 'carrito'], 'imageUrl': 'assets/images_cards/reparar_linterna_o_carrito.png'});
     deck.shuffle(random);
+    
+    // Si queremos un mazo más pequeño, recortamos cartas de camino buenas primordialmente
+    if (deck.length > targetSize) {
+      // Intentamos mantener las cartas de acción (son las más divertidas)
+      // Buscamos índices de cartas de tipo 'path'
+      final pathIndices = <int>[];
+      for (int i = 0; i < deck.length; i++) {
+        if (deck[i]['type'] == 'path') pathIndices.add(i);
+      }
+      
+      pathIndices.shuffle(random);
+      int toRemove = deck.length - targetSize;
+      
+      // Eliminar de los paths aleatorios hasta llegar al tamaño deseado o agotar los paths
+      final toDeleteSet = <int>{};
+      for (int i = 0; i < toRemove && i < pathIndices.length; i++) {
+          toDeleteSet.add(pathIndices[i]);
+      }
+      
+      final newDeck = <Map<String, dynamic>>[];
+      for (int i = 0; i < deck.length; i++) {
+        if (!toDeleteSet.contains(i)) newDeck.add(deck[i]);
+      }
+      return newDeck;
+    }
+    
     return deck;
   }
 
@@ -666,7 +709,7 @@ class FirebaseService {
 
     await _firestore.collection('games').doc(gameId).update({
       'players': players,
-      'status': roundNumber >= 3 ? 'finished' : 'round_finished',
+      'status': roundNumber >= (gameData['settings']?['numRounds'] ?? 3) ? 'finished' : 'round_finished',
       'winnerRole': winnerRole,
       'roundNumber': roundNumber,
       'lastPlayedUid': lastPlayerId,
@@ -681,14 +724,20 @@ class FirebaseService {
     if (!doc.exists) return;
 
     final data = doc.data() as Map<String, dynamic>;
+    final settings = data['settings'] as Map<String, dynamic>? ?? {
+      'numRounds': 3,
+      'numSaboteurs': 1,
+      'deckSize': 70,
+    };
     int roundNumber = data['roundNumber'] ?? 1;
-    if (roundNumber >= 3) return;
+    final int maxRounds = settings['numRounds'] ?? 3;
+    if (roundNumber >= maxRounds) return;
     
     final players = Map<String, dynamic>.from(data['players']);
     final random = Random();
     final playerIds = players.keys.toList()..shuffle();
 
-    int numSaboteurs = playerIds.length == 2 ? 1 : (playerIds.length / 3).floor().clamp(1, 4);
+    int numSaboteurs = settings['numSaboteurs'] ?? 1;
     for (int i = 0; i < playerIds.length; i++) {
         players[playerIds[i]]['role'] = i < numSaboteurs ? 'saboteur' : 'miner';
         players[playerIds[i]]['brokenTools'] = [];
@@ -709,7 +758,8 @@ class FirebaseService {
         }
     }
 
-    final deck = _generateDeck();
+    final deckSize = (settings['deckSize'] as num?)?.toInt() ?? 70;
+    final deck = _generateDeck(deckSize);
     for (var pid in playerIds) {
         players[pid]['hand'] = [for (int j = 0; j < 6; j++) if (deck.isNotEmpty) deck.removeLast()];
     }

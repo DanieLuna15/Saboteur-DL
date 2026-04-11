@@ -112,6 +112,85 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
     }
   }
 
+  void _showSettingsDialog(BuildContext context, String gameId, int playerCount, Map<String, dynamic>? currentSettings, FirebaseService service) {
+    final int recommendedSaboteurs = playerCount <= 4 ? 1 : (playerCount <= 6 ? 2 : 3);
+    const int recommendedRounds = 3;
+    const int recommendedDeckSize = 70;
+
+    int numRounds = currentSettings?['numRounds'] ?? recommendedRounds;
+    int numSaboteurs = currentSettings?['numSaboteurs'] ?? recommendedSaboteurs;
+    int deckSize = currentSettings?['deckSize'] ?? recommendedDeckSize;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.darkBackground,
+          title: const Text('CONFIGURACIÓN DE PARTIDA', style: TextStyle(color: AppColors.brightGold, fontSize: 18)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildSettingSlider(
+                  'Rondas', 
+                  numRounds.toDouble(), 
+                  1, 10, 
+                  (val) => setDialogState(() => numRounds = val.toInt()),
+                  'Sug: $recommendedRounds'
+                ),
+                const SizedBox(height: 16),
+                _buildSettingSlider(
+                  'Saboteadores', 
+                  numSaboteurs.toDouble(), 
+                  1, (playerCount - 1).clamp(1, 4).toDouble(), 
+                  (val) => setDialogState(() => numSaboteurs = val.toInt()),
+                  'Sug: $recommendedSaboteurs'
+                ),
+                const SizedBox(height: 16),
+                _buildSettingSlider(
+                  'Cartas en Mazo', 
+                  deckSize.toDouble(), 
+                  30, 100, 
+                  (val) => setDialogState(() => deckSize = val.toInt()),
+                  'Sug: $recommendedDeckSize'
+                ),
+                const SizedBox(height: 20),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setDialogState(() {
+                        numRounds = recommendedRounds;
+                        numSaboteurs = recommendedSaboteurs;
+                        deckSize = recommendedDeckSize;
+                      });
+                    },
+                    icon: const Icon(Icons.auto_awesome, size: 16, color: Colors.cyanAccent),
+                    label: const Text('ACEPTAR RECOMENDACIÓN', style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCELAR')),
+            ElevatedButton(
+              onPressed: () async {
+                await service.updateGameSettings(gameId, {
+                  'numRounds': numRounds,
+                  'numSaboteurs': numSaboteurs,
+                  'deckSize': deckSize,
+                });
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('GUARDAR'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showChangeNameDialog(BuildContext context, String gameId, String currentUid, Map<dynamic, dynamic> players, FirebaseService service) {
     final TextEditingController controller = TextEditingController(text: players[currentUid]['name']);
     showDialog(
@@ -139,6 +218,41 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSettingSlider(String label, double value, double min, double max, Function(double) onChanged, String suggestion) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: AppColors.cream, fontWeight: FontWeight.bold)),
+            Text(suggestion, style: const TextStyle(color: Colors.grey, fontSize: 10, fontStyle: FontStyle.italic)),
+          ],
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: Slider(
+                value: value,
+                min: min,
+                max: max,
+                divisions: (max - min).toInt() == 0 ? 1 : (max - min).toInt(),
+                activeColor: AppColors.brightGold,
+                inactiveColor: Colors.grey.shade800,
+                onChanged: onChanged,
+              ),
+            ),
+            Container(
+              width: 30,
+              alignment: Alignment.center,
+              child: Text(value.toInt().toString(), style: const TextStyle(color: AppColors.brightGold, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -203,6 +317,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
 
         final players = data['players'] as Map<dynamic, dynamic>;
         final status = data['status'] as String;
+        final settings = data['settings'] as Map<String, dynamic>?;
         final createdAt = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
         
         final currentUid = firebaseService.currentUid;
@@ -250,6 +365,11 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                     icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
                     onPressed: () => _handleHostDeleteRoom(context, gameId, firebaseService),
                   ),
+                if (amIHost)
+                  IconButton(
+                    icon: const Icon(Icons.settings, color: AppColors.cream),
+                    onPressed: () => _showSettingsDialog(context, gameId, players.length, settings, firebaseService),
+                  ),
               ],
             ),
             body: Container(
@@ -278,6 +398,28 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                               style: TextStyle(color: Colors.orangeAccent, fontSize: 11, fontStyle: FontStyle.italic),
                             ),
                           ),
+                        if (settings != null)
+                           Padding(
+                             padding: const EdgeInsets.only(top: 12.0),
+                             child: Container(
+                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                               decoration: BoxDecoration(
+                                 color: Colors.black26,
+                                 borderRadius: BorderRadius.circular(8),
+                                 border: Border.all(color: AppColors.brightGold.withOpacity(0.3))
+                               ),
+                               child: Row(
+                                 mainAxisSize: MainAxisSize.min,
+                                 children: [
+                                   _buildMiniSetting(Icons.replay, '${settings['numRounds']} Rds'),
+                                   const SizedBox(width: 12),
+                                   _buildMiniSetting(Icons.group, '${settings['numSaboteurs']} Sab'),
+                                   const SizedBox(width: 12),
+                                   _buildMiniSetting(Icons.style, '${settings['deckSize']} Cards'),
+                                 ],
+                               ),
+                             ),
+                           ),
                       ],
                     ),
                   ),
@@ -382,6 +524,16 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildMiniSetting(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: AppColors.brightGold),
+        const SizedBox(width: 4),
+        Text(text, style: const TextStyle(color: AppColors.cream, fontSize: 11)),
+      ],
     );
   }
 }
