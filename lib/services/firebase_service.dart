@@ -64,7 +64,8 @@ class FirebaseService {
       'settings': {
         'numRounds': 3,
         'numSaboteurs': 1,
-        'deckSize': 70, // Standard size
+        'deckSize': 70, 
+        'turnTime': 60, // Standard turn time in seconds
       },
     });
     return docRef.id;
@@ -371,7 +372,7 @@ class FirebaseService {
     return false;
   }
 
-  Future<void> playActionOnPlayer(String gameId, String? actorUid, String targetUid, Map<String, dynamic> cardData) async {
+  Future<void> playActionOnPlayer(String gameId, String? actorUid, String targetUid, Map<String, dynamic> cardData, {String? toolToFix}) async {
     if (actorUid == null) return;
     final doc = await _firestore.collection('games').doc(gameId).get();
     final players = Map<String, dynamic>.from(doc.get('players'));
@@ -395,9 +396,13 @@ class FirebaseService {
           ? fixToolsRaw.cast<String>() 
           : [tool];
           
-      final matchingTool = broken.firstWhere((b) => canFix.contains(b), orElse: () => '');
+      // Si el usuario especificó una herramienta y la carta puede arreglarla, usamos esa.
+      // Si no, buscamos la primera que la carta pueda arreglar.
+      final String matchingTool = (toolToFix != null && canFix.contains(toolToFix))
+          ? toolToFix
+          : broken.firstWhere((b) => canFix.contains(b), orElse: () => '');
       
-      if (matchingTool.isEmpty) {
+      if (matchingTool.isEmpty || !broken.contains(matchingTool)) {
         throw Exception("Esta carta no puede reparar ninguna de tus herramientas rotas");
       }
       

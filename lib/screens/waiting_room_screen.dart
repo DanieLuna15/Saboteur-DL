@@ -120,6 +120,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
     int numRounds = currentSettings?['numRounds'] ?? recommendedRounds;
     int numSaboteurs = currentSettings?['numSaboteurs'] ?? recommendedSaboteurs;
     int deckSize = currentSettings?['deckSize'] ?? recommendedDeckSize;
+    int turnTime = currentSettings?['turnTime'] ?? 60;
 
     showDialog(
       context: context,
@@ -155,6 +156,14 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                   (val) => setDialogState(() => deckSize = val.toInt()),
                   'Sug: $recommendedDeckSize'
                 ),
+                const SizedBox(height: 16),
+                _buildSettingSlider(
+                  'Tiempo x Turno', 
+                  turnTime.toDouble(), 
+                  15, 120, 
+                  (val) => setDialogState(() => turnTime = val.toInt()),
+                  'Sug: 60s'
+                ),
                 const SizedBox(height: 20),
                 Center(
                   child: TextButton.icon(
@@ -163,6 +172,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                         numRounds = recommendedRounds;
                         numSaboteurs = recommendedSaboteurs;
                         deckSize = recommendedDeckSize;
+                        turnTime = 60;
                       });
                     },
                     icon: const Icon(Icons.auto_awesome, size: 16, color: Colors.cyanAccent),
@@ -180,6 +190,7 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                   'numRounds': numRounds,
                   'numSaboteurs': numSaboteurs,
                   'deckSize': deckSize,
+                  'turnTime': turnTime,
                 });
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
               },
@@ -412,10 +423,12 @@ class _WaitingRoomScreenState extends ConsumerState<WaitingRoomScreen> {
                                  mainAxisSize: MainAxisSize.min,
                                  children: [
                                    _buildMiniSetting(Icons.replay, '${settings['numRounds']} Rds'),
-                                   const SizedBox(width: 12),
+                                   const SizedBox(width: 8),
                                    _buildMiniSetting(Icons.group, '${settings['numSaboteurs']} Sab'),
-                                   const SizedBox(width: 12),
+                                   const SizedBox(width: 8),
                                    _buildMiniSetting(Icons.style, '${settings['deckSize']} Cards'),
+                                   const SizedBox(width: 8),
+                                   _buildMiniSetting(Icons.timer, '${settings['turnTime'] ?? 60}s'),
                                  ],
                                ),
                              ),

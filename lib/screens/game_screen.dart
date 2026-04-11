@@ -118,8 +118,11 @@ class _GameScreenState extends ConsumerState<GameScreen> {
          return; 
       }
       
+      final settings = data['settings'] as Map<String, dynamic>? ?? {};
+      final turnTime = (settings['turnTime'] as num?)?.toInt() ?? 60;
+      
       final turnPlayerName = (players[currentTurn]?['name'] ?? 'Desconocido').toString().toUpperCase();
-      _startTimer(gameId, service.currentUid, service, isMyTurn);
+      _startTimer(gameId, service.currentUid, service, isMyTurn, turnTime);
       _showTurnDialog(isMyTurn ? '¡ES TU TURNO!' : 'TURNO DE:\n$turnPlayerName', isMyTurn);
 
       final myData = players[service.currentUid];
@@ -300,21 +303,21 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     });
   }
 
-  void _startTimer(String gameId, String uid, FirebaseService service, bool isMyTurn) {
+  void _startTimer(String gameId, String uid, FirebaseService service, bool isMyTurn, int turnTime) {
     _turnTimer?.cancel();
     setState(() {
       _hasPlayedOrDiscardedThisTurn = false;
       _isEndingTurn = false;
       _secondsLeft = (_currentTurnStartTime != null) 
-          ? max(0, 60 - DateTime.now().difference(_currentTurnStartTime!.toDate()).inSeconds)
-          : 60;
+          ? max(0, turnTime - DateTime.now().difference(_currentTurnStartTime!.toDate()).inSeconds)
+          : turnTime;
     });
 
     _turnTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) { timer.cancel(); return; }
       setState(() {
         if (_currentTurnStartTime != null) {
-          _secondsLeft = max(0, 60 - DateTime.now().difference(_currentTurnStartTime!.toDate()).inSeconds);
+          _secondsLeft = max(0, turnTime - DateTime.now().difference(_currentTurnStartTime!.toDate()).inSeconds);
         } else if (_secondsLeft > 0) {
           _secondsLeft--;
         }
@@ -547,7 +550,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   String label = 'PICO ROTO';
                   if (t == 'linterna' || t == 'lantern') {
                     asset = 'assets/images_cards/castigo_linterna.png';
-                    label = 'LINTERNA ROTA';
+                    label = 'LÁMPARA ROTA';
                   }
                   if (t == 'carrito' || t == 'cart') {
                     asset = 'assets/images_cards/castigo_carrito.png';
@@ -572,6 +575,53 @@ class _GameScreenState extends ConsumerState<GameScreen> {
             ),
           )
         ],
+      ),
+    );
+  }
+
+  void _showFixSelectionDialog(String gameId, String targetPid, String targetName, List<String> options, ActionCard card, FirebaseService service) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.black,
+        shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.greenAccent, width: 2), borderRadius: BorderRadius.circular(20)),
+        title: Text('REPARAR: $targetName', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('¿Qué herramienta quieres reparar?', style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: options.map((tool) {
+                 String label = 'PICO';
+                 String asset = 'assets/images_cards/reparar_pico.png';
+                 if (tool == 'linterna' || tool == 'lantern') { label = 'LÁMPARA'; asset = 'assets/images_cards/reparar_linterna.png'; }
+                 if (tool == 'carrito' || tool == 'cart') { label = 'CARRITO'; asset = 'assets/images_cards/reparar_carrito.png'; }
+                 
+                 return InkWell(
+                   onTap: () async {
+                     Navigator.pop(ctx);
+                     try {
+                       await service.playActionOnPlayer(gameId, service.currentUid, targetPid, card.toMap(), toolToFix: tool);
+                       try { FlameAudio.play('reparar_herramienta.mp3', volume: 0.8); } catch(e){}
+                       if (mounted) setState(() => _hasPlayedOrDiscardedThisTurn = true);
+                     } catch(e) { _showError(e.toString()); }
+                   },
+                   child: Column(
+                     children: [
+                       Image.asset(asset, width: 70, height: 70),
+                       const SizedBox(height: 8),
+                       Text(label, style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                     ],
+                   ),
+                 );
+              }).toList(),
+            ),
+          ],
+        ),
+        actions: [Center(child: TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCELAR', style: TextStyle(color: Colors.grey))))],
       ),
     );
   }
@@ -878,7 +928,16 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                             onAcceptWithDetails: (details) async {
                               try {
                                 final card = details.data;
-                                // Local validation if possible
+                                if (card is ActionCard && card.actionType == 'fix_tool') {
+                                   final fixable = card.fixTools.isNotEmpty ? card.fixTools : [card.targetTool];
+                                   final common = fixable.where((t) => broken.contains(t)).toList();
+                                   
+                                   if (common.length > 1) {
+                                      _showFixSelectionDialog(gameId, pid, pdata['name'], common, card, firebaseService);
+                                      return;
+                                   }
+                                }
+
                                 await firebaseService.playActionOnPlayer(gameId, firebaseService.currentUid, pid, details.data.toMap());
                                 
                                 if (card is ActionCard && card.actionType == 'break_tool') {
