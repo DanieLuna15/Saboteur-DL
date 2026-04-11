@@ -700,14 +700,15 @@ class FirebaseService {
     final tools = ['pico', 'linterna', 'carrito'];
     for (var tool in tools) {
         String toolImg = tool == 'pico' ? 'pico_roto.png' : (tool == 'linterna' ? 'linterna_rota.png' : 'carrito_roto.png');
-        deck.add({'id': 'brk_${tool}_${random.nextInt(100)}', 'name': 'Romper $tool', 'type': 'action', 'actionType': 'break_tool', 'targetTool': tool, 'imageUrl': 'assets/images_cards/$toolImg'});
+        String toolDisplayName = tool == 'linterna' ? 'lámpara' : tool;
+        deck.add({'id': 'brk_${tool}_${random.nextInt(100)}', 'name': 'Romper $toolDisplayName', 'type': 'action', 'actionType': 'break_tool', 'targetTool': tool, 'imageUrl': 'assets/images_cards/$toolImg'});
         
         String fixImg = tool == 'pico' ? 'reparar_pico.png' : (tool == 'linterna' ? 'reparar_linterna.png' : 'reparar_carrito.png');
-        deck.add({'id': 'fix_${tool}_${random.nextInt(100)}', 'name': 'Reparar $tool', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': [tool], 'imageUrl': 'assets/images_cards/$fixImg'});
+        deck.add({'id': 'fix_${tool}_${random.nextInt(100)}', 'name': 'Reparar $toolDisplayName', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': [tool], 'imageUrl': 'assets/images_cards/$fixImg'});
     }
-    deck.add({'id': 'fix_pico_linterna', 'name': 'Reparar Pico o Linterna', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'linterna'], 'imageUrl': 'assets/images_cards/reparar_pico_o_linterna.png'});
+    deck.add({'id': 'fix_pico_linterna', 'name': 'Reparar Pico o Lámpara', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'linterna'], 'imageUrl': 'assets/images_cards/reparar_pico_o_linterna.png'});
     deck.add({'id': 'fix_pico_carrito', 'name': 'Reparar Pico o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['pico', 'carrito'], 'imageUrl': 'assets/images_cards/reparar_pico_o_carrito.png'});
-    deck.add({'id': 'fix_linterna_carrito', 'name': 'Reparar Linterna o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['linterna', 'carrito'], 'imageUrl': 'assets/images_cards/reparar_linterna_o_carrito.png'});
+    deck.add({'id': 'fix_linterna_carrito', 'name': 'Reparar Lámpara o Carrito', 'type': 'action', 'actionType': 'fix_tool', 'fixTools': ['linterna', 'carrito'], 'imageUrl': 'assets/images_cards/reparar_linterna_o_carrito.png'});
     deck.shuffle(random);
     
     // Si queremos un mazo más pequeño, recortamos cartas de camino buenas primordialmente

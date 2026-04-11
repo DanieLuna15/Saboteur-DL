@@ -169,7 +169,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
           toolName = 'pico'; break;
         case 'lantern':
         case 'linterna': 
-          toolName = 'linterna'; break;
+          toolName = 'lámpara'; break;
         case 'cart':
         case 'carrito': 
           toolName = 'carrito'; break;
