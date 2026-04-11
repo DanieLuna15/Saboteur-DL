@@ -518,26 +518,24 @@ class FirebaseService {
   Future<void> forceSkipTurn(String gameId, String currentTurnUid) async {
     final doc = await _firestore.collection('games').doc(gameId).get();
     final data = doc.data() as Map<String, dynamic>;
-    final players = Map<String, dynamic>.from(data['players']);
-    final deck = List<Map<String, dynamic>>.from(data['deck']);
+    final players = data['players'] as Map<String, dynamic>;
     
-    if (deck.isEmpty) {
-      final hand = List<Map<String, dynamic>>.from(players[currentTurnUid]['hand'] ?? []);
-      if (hand.isNotEmpty) {
-        final random = Random();
-        final cardToDiscard = hand.removeAt(random.nextInt(hand.length));
-        
-        await _firestore.collection('games').doc(gameId).update({
-          'discardPile': FieldValue.arrayUnion([cardToDiscard]),
-        });
-        
-        players[currentTurnUid]['hand'] = hand;
-        await _firestore.collection('games').doc(gameId).update({
-          'players': players,
-        });
-      }
+    final hand = List<Map<String, dynamic>>.from(players[currentTurnUid]['hand'] ?? []);
+    if (hand.isNotEmpty) {
+      final random = Random();
+      final cardToDiscard = hand.removeAt(random.nextInt(hand.length));
+      
+      // Actualizamos el descarte y la mano del jugador para que endTurnAndDraw vea la mano reducida
+      await _firestore.collection('games').doc(gameId).update({
+        'discardPile': FieldValue.arrayUnion([cardToDiscard]),
+        'players.$currentTurnUid.hand': hand,
+      });
     }
     
+    // endTurnAndDraw se encargará de:
+    // 1. Robar una carta si el mazo no está vacío.
+    // 2. Pasar el turno al siguiente jugador.
+    // 3. Verificar si el juego termina (si no quedan cartas en mano ni mazo).
     await endTurnAndDraw(gameId, currentTurnUid);
   }
 
